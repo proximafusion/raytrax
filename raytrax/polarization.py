@@ -6,6 +6,7 @@ import jaxtyping as jt
 from raytrax import dispersion
 
 ScalarFloat = float | jt.Float[jax.Array, " "]
+ComplexFloat = complex | jt.Complex[jax.Array, " "]
 
 
 def polarization(
@@ -92,9 +93,11 @@ def _polarization_low_density(
     if mode == "X":
         F = 0.5 * Y2 * N120 * (1 - jnp.sqrt(1 + 4 * n32 / (Y2 * N120**2)))
         F1 = F - N120 * Y2
-        Ey = 1.0 + 0j
-        Ex = -1j * Ys / F1 * (n32 + X * (Y2 - F) * (F1 - n32) / (Y21 * F1))
-        Ez = (
+        Ey: ComplexFloat = 1.0 + 0j
+        Ex: ComplexFloat = (
+            -1j * Ys / F1 * (n32 + X * (Y2 - F) * (F1 - n32) / (Y21 * F1))
+        )
+        Ez: ComplexFloat = (
             1j
             * Ys
             * n3
