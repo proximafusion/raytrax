@@ -37,12 +37,7 @@ def interpolate_toroidal_to_cylindrical_grid(
 
 @jt.jaxtyped(typechecker=typechecker)
 def cylindrical_grid_for_equilibrium(
-    equilibrium: WoutLike,
-    n_rho: int = 100,
-    n_theta: int = 100,
-    n_phi: int = 100,
-    n_r: int = 100,
-    n_z: int = 100,
+    equilibrium: WoutLike, n_rho: int, n_theta: int, n_phi: int, n_r: int, n_z: int
 ) -> jt.Float[jax.Array, "n_r n_phi n_z rhoBxyz=4"]:
     """Create a cylindrical grid for the given equilibrium."""
     if equilibrium.lasym:
@@ -79,7 +74,6 @@ def cylindrical_grid_for_equilibrium(
         ),
         axis=-1,
     )
-    # Concatenate along the last dimension
     value_toroidal = jnp.concatenate([rphiz[..., :1], Bxyz[..., :]], axis=-1)
     return interpolate_toroidal_to_cylindrical_grid(
         rphiz_toroidal=rphiz,

@@ -27,20 +27,20 @@ def torus_wout():
     n_surfaces = 5
     major_radius = 2.0
     minor_radius = 0.5
-    rmnc = np.zeros((n_surfaces, 2))
-    rmnc[:, 0] = major_radius
-    rmnc[:, 1] = np.sqrt(np.linspace(0, 1, n_surfaces)) * minor_radius
+    rmnc = np.zeros((2, n_surfaces))
+    rmnc[0] = major_radius
+    rmnc[1] = np.sqrt(np.linspace(0, 1, n_surfaces)) * minor_radius
 
     xm = np.array([0, 1])
     xn = np.array([0, 0])
-    zmns = np.zeros((n_surfaces, 2))
-    zmns[:, 1] = np.sqrt(np.linspace(0, 1, n_surfaces)) * minor_radius
+    zmns = np.zeros((2, n_surfaces))
+    zmns[1] = np.sqrt(np.linspace(0, 1, n_surfaces)) * minor_radius
 
     xm_nyq = np.array([0, 1])
     xn_nyq = np.array([0, 0])
-    bsupumnc = np.zeros((n_surfaces - 1, 2))
-    bsupvmnc = np.zeros((n_surfaces - 1, 2))
-    bsupvmnc[:, 0] = 0.7
+    bsupumnc = np.zeros((2, n_surfaces))
+    bsupvmnc = np.zeros((2, n_surfaces))
+    bsupvmnc[0] = 0.7
     return TestWout(
         rmnc=jnp.array(rmnc),
         zmns=jnp.array(zmns),

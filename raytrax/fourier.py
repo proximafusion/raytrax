@@ -24,7 +24,7 @@ class FourierDerivative(Enum):
 @partial(jax.jit, static_argnames=["basis", "derivative"])
 @jt.jaxtyped(typechecker=typechecker)
 def inverse_fourier_transform(
-    fourier_coefficients: jt.Float[jax.Array, "n_rho n_fourier_coefficients"],
+    fourier_coefficients: jt.Float[jax.Array, "n_fourier_coefficients n_rho"],
     poloidal_mode_numbers: jt.Int[jax.Array, " n_fourier_coefficients"],
     toroidal_mode_numbers: jt.Int[jax.Array, " n_fourier_coefficients"],
     rho_theta_phi: jt.Float[jax.Array, "n_rho n_theta n_phi rho_theta_phi=3"],
@@ -32,41 +32,41 @@ def inverse_fourier_transform(
     derivative: FourierDerivative = FourierDerivative.NO,
 ) -> jt.Float[jax.Array, "n_rho n_theta n_phi"]:
     """Transform an array of Fourier coefficients into values on a toroidal grid."""
-    m = poloidal_mode_numbers[jnp.newaxis, :, jnp.newaxis, jnp.newaxis]
-    n = toroidal_mode_numbers[jnp.newaxis, :, jnp.newaxis, jnp.newaxis]
-    theta = rho_theta_phi[:, jnp.newaxis, :, :, 1]
-    phi = rho_theta_phi[:, jnp.newaxis, :, :, 2]
+    m = poloidal_mode_numbers[:, jnp.newaxis, jnp.newaxis, jnp.newaxis]
+    n = toroidal_mode_numbers[:, jnp.newaxis, jnp.newaxis, jnp.newaxis]
+    theta = rho_theta_phi[jnp.newaxis, :, :, :, 1]
+    phi = rho_theta_phi[jnp.newaxis, :, :, :, 2]
     angle = m * theta - n * phi
     coefficients = fourier_coefficients[:, :, jnp.newaxis, jnp.newaxis]
     if basis == FourierBasis.COS:
         if derivative == FourierDerivative.POLOIDAL:
-            return jnp.sum(-m * coefficients * jnp.sin(angle), axis=1)
+            return jnp.sum(-m * coefficients * jnp.sin(angle), axis=0)
         elif derivative == FourierDerivative.TOROIDAL:
-            return jnp.sum(n * coefficients * jnp.sin(angle), axis=1)
+            return jnp.sum(n * coefficients * jnp.sin(angle), axis=0)
         else:
-            return jnp.sum(coefficients * jnp.cos(angle), axis=1)
+            return jnp.sum(coefficients * jnp.cos(angle), axis=0)
     elif basis == FourierBasis.SIN:
         if derivative == FourierDerivative.POLOIDAL:
-            return jnp.sum(m * coefficients * jnp.cos(angle), axis=1)
+            return jnp.sum(m * coefficients * jnp.cos(angle), axis=0)
         elif derivative == FourierDerivative.TOROIDAL:
-            return jnp.sum(-n * coefficients * jnp.cos(angle), axis=1)
+            return jnp.sum(-n * coefficients * jnp.cos(angle), axis=0)
         else:
-            return jnp.sum(coefficients * jnp.sin(angle), axis=1)
+            return jnp.sum(coefficients * jnp.sin(angle), axis=0)
 
 
 @jt.jaxtyped(typechecker=typechecker)
 def interpolate_coefficients_radially(
-    fourier_coefficients: jt.Float[jax.Array, "n_s n_fourier_coefficients"],
+    fourier_coefficients: jt.Float[jax.Array, "n_fourier_coefficients n_s"],
     normalized_toroidal_flux_in: jt.Float[jax.Array, " n_s "],
     normalized_effective_radius_out: jt.Float[jax.Array, " n_rho "],
-) -> jt.Float[jax.Array, "n_rho n_fourier_coefficients"]:
+) -> jt.Float[jax.Array, "n_fourier_coefficients n_rho"]:
     """Interpolate Fourier radially at the effective radius values provided."""
     return interpax.interp1d(
         normalized_effective_radius_out,
         jnp.sqrt(normalized_toroidal_flux_in),
-        fourier_coefficients,
+        fourier_coefficients.T,
         extrap=True,
-    )
+    ).T
 
 
 @jt.jaxtyped(typechecker=typechecker)
@@ -83,7 +83,7 @@ def evaluate_rphiz_on_toroidal_grid(
     rho = rho_theta_phi[:, 0, 0, 0]
     r = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.rmnc,
+            fourier_coefficients=jnp.asarray(equilibrium.rmnc),
             normalized_toroidal_flux_in=s,
             normalized_effective_radius_out=rho,
         ),
@@ -94,7 +94,7 @@ def evaluate_rphiz_on_toroidal_grid(
     )
     z = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.zmns,
+            fourier_coefficients=jnp.asarray(equilibrium.zmns),
             normalized_toroidal_flux_in=s,
             normalized_effective_radius_out=rho,
         ),
@@ -123,7 +123,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     rho = rho_theta_phi[:, 0, 0, 0]
     b_theta = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.bsupumnc,
+            fourier_coefficients=jnp.asarray(equilibrium.bsupumnc[:, 1:]),
             normalized_toroidal_flux_in=s_half,
             normalized_effective_radius_out=rho,
         ),
@@ -134,7 +134,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     b_phi = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.bsupvmnc,
+            fourier_coefficients=jnp.asarray(equilibrium.bsupvmnc[:, 1:]),
             normalized_toroidal_flux_in=s_half,
             normalized_effective_radius_out=rho,
         ),
@@ -145,7 +145,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     r = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.rmnc,
+            fourier_coefficients=jnp.asarray(equilibrium.rmnc),
             normalized_toroidal_flux_in=s_full,
             normalized_effective_radius_out=rho,
         ),
@@ -156,7 +156,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     dr_dtheta = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.rmnc,
+            fourier_coefficients=jnp.asarray(equilibrium.rmnc),
             normalized_toroidal_flux_in=s_full,
             normalized_effective_radius_out=rho,
         ),
@@ -168,7 +168,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     dz_dtheta = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.zmns,
+            fourier_coefficients=jnp.asarray(equilibrium.zmns),
             normalized_toroidal_flux_in=s_full,
             normalized_effective_radius_out=rho,
         ),
@@ -180,7 +180,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     dr_dphi = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.rmnc,
+            fourier_coefficients=jnp.asarray(equilibrium.rmnc),
             normalized_toroidal_flux_in=s_full,
             normalized_effective_radius_out=rho,
         ),
@@ -192,7 +192,7 @@ def evaluate_magnetic_field_on_toroidal_grid(
     )
     dz_dphi = inverse_fourier_transform(
         fourier_coefficients=interpolate_coefficients_radially(
-            fourier_coefficients=equilibrium.zmns,
+            fourier_coefficients=jnp.asarray(equilibrium.zmns),
             normalized_toroidal_flux_in=s_full,
             normalized_effective_radius_out=rho,
         ),
