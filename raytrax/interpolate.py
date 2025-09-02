@@ -110,7 +110,7 @@ def cylindrical_grid_for_equilibrium(
         ),
         axis=-1,
     )
-    value_toroidal = jnp.concatenate([rphiz[..., :1], Bxyz[..., :]], axis=-1)
+    value_toroidal = jnp.concatenate([rho_theta_phi[..., :1], Bxyz[..., :]], axis=-1)
     rhoBxyz_cylindrical = interpolate_toroidal_to_cylindrical_grid(
         rphiz_toroidal=rphiz,
         rz_cylindrical=rz_cylindrical,
