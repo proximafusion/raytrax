@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# ParaView files
+*.vts
+*.vtk
+
+# downloaded example file
+raytrax/examples/w7x.json
+
 # Distribution / packaging
 .Python
 build/
