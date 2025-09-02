@@ -1,3 +1,11 @@
+r"""Utilities for interpolating flux surface quantities on a cylindrical grid.
+
+Since ray tracing is computed in cartesian space (which can easily be transformed
+to/from cylindrical coordinates), the effective minor radius $\rho$ and the magnetic
+field $B$ need to be extrapolated from toroidal coordinates ($\rho$, $\theta$, $\phi$)
+to cylindrical coordinates ($r$, $\phi$, $z$).
+"""
+
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt
@@ -17,8 +25,22 @@ def interpolate_toroidal_to_cylindrical_grid(
     rphiz_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi rphiz=3"],
     rz_cylindrical: jt.Float[jax.Array, "n_r n_z rz=2"],
     value_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi n_values"],
-) -> jt.Float[jax.Array, "n_r n_phi n_z *dims"]:
-    """Interpolate toroidal coordinates to a cylindrical grid."""
+) -> jt.Float[jax.Array, "n_r n_phi n_z n_values"]:
+    """Interpolate toroidal coordinates to a cylindrical grid.
+    
+    Args:
+    - rphiz_toroidal: An array of cylindrical coordinates (the last dimension
+        are the three coordinates r, phi, z) on the toroidal grid.
+    - rz_cylindrical: The cylindrical coordinates (r, z) on the cylindrical grid.
+        Note that phi does not need to be provided because we use the same phi
+        grid as for the toroidal grid, so no interpolation in phi is needed.
+    - value_toroidal: The values of the quantities to be interpolated on the
+        toroidal grid nodes.
+
+    Returns:
+    The values of the quantities interpolated to the cylindrical grid as a JAX
+    array.
+    """
     (n_r, n_z, _) = rz_cylindrical.shape
     n_values = value_toroidal.shape[-1]
     values = []
@@ -38,8 +60,22 @@ def interpolate_toroidal_to_cylindrical_grid(
 @jt.jaxtyped(typechecker=typechecker)
 def cylindrical_grid_for_equilibrium(
     equilibrium: WoutLike, n_rho: int, n_theta: int, n_phi: int, n_r: int, n_z: int
-) -> jt.Float[jax.Array, "n_r n_phi n_z rhoBxyz=4"]:
-    """Create a cylindrical grid for the given equilibrium."""
+) -> jt.Float[jax.Array, "n_r n_phi n_z rphizrhoBxyz=7"]:
+    """Compute the effective minor radius and the magnetic field on a cylindrical grid.
+
+    Args:
+        equilibrium: The MHD equilibrium.
+        n_rho: Number of radial points.
+        n_theta: Number of poloidal points.
+        n_phi: Number of toroidal points (equal in both grids!).
+        n_r: Number of radial points in the cylindrical grid.
+        n_z: Number of vertical points in the cylindrical grid.
+
+    Returns:
+        A JAX array of values on the cylindrical grid with shape (n_r, n_phi, n_z, 7).
+        The last dimension is a vector with the following components:
+        (r, phi, z, rho, B_x, B_y, B_z).
+    """
     if equilibrium.lasym:
         raise NotImplementedError(
             "Non stellarator symmetric equilibria are not supported yet."
@@ -75,8 +111,19 @@ def cylindrical_grid_for_equilibrium(
         axis=-1,
     )
     value_toroidal = jnp.concatenate([rphiz[..., :1], Bxyz[..., :]], axis=-1)
-    return interpolate_toroidal_to_cylindrical_grid(
+    rhoBxyz_cylindrical = interpolate_toroidal_to_cylindrical_grid(
         rphiz_toroidal=rphiz,
         rz_cylindrical=rz_cylindrical,
         value_toroidal=value_toroidal,
     )
+    rphiz_cylindrical = jnp.stack(
+        jnp.meshgrid(
+            jnp.linspace(rmin, rmax, n_r),
+            jnp.linspace(0, phi_max, n_phi),
+            jnp.linspace(zmin, zmax, n_z),
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+    result = jnp.concatenate([rphiz_cylindrical, rhoBxyz_cylindrical], axis=-1)
+    return result

@@ -64,7 +64,7 @@ def test_cylindrical_grid_for_equilibrium(torus_wout):
         n_z=n_z,
     )
 
-    assert grid.shape == (n_r, n_phi, n_z, 4)
+    assert grid.shape == (n_r, n_phi, n_z, 7)
     assert np.any(np.isfinite(grid))
 
     rphiz_data = grid[..., 0]
