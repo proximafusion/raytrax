@@ -180,8 +180,7 @@ def test_build_radial_interpolators_w7x(w7x_wout):
     
     # Test the interpolators at different positions
     # Use positions we know are within the W7X geometry
-    R_major = 5.6
-    a_minor = 0.5
+    R_major = 6.0
     
     positions = jnp.array([
         [R_major, 0.0, 0.0],  # On axis, at phi = 0
