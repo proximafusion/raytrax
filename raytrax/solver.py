@@ -123,3 +123,47 @@ def solve(
         first_step=0.005,
     )
     return [_y_to_state(y=jnp.asarray(y), s=t) for t, y in zip(res.t, res.y.T)]
+
+
+def compute_additional_quantities(
+    ray_states: list[ray.RayState],
+    setting: ray.RaySetting,
+    magnetic_field_interpolator: Callable[
+        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]
+    ],
+    electron_density_interpolator: Callable[
+        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
+    ],
+    electron_temperature_interpolator: Callable[
+        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
+    ],
+) -> list[ray.RayQuantities]:
+    """Compute additional quantities for the ray states."""
+    ray_quantity_list = []
+
+    for state in ray_states:
+        position = state.position
+        refractive_index = state.refractive_index
+
+        magnetic_field = magnetic_field_interpolator(position)
+        electron_density = electron_density_interpolator(position)
+        electron_temperature = electron_temperature_interpolator(position)
+
+        absorption_coefficient = absorption.absorption_coefficient_conditional(
+            refractive_index=refractive_index,
+            magnetic_field=magnetic_field,
+            electron_density_1e20_per_m3=electron_density,
+            electron_temperature_keV=electron_temperature,
+            frequency=setting.frequency,
+            mode=setting.mode,
+        )
+
+        ray_quantities = ray.RayQuantities(
+            magnetic_field=magnetic_field,
+            absorption_coefficient=jnp.asarray(absorption_coefficient),
+            electron_density=electron_density,
+            electron_temperature=electron_temperature,
+        )
+        ray_quantity_list.append(ray_quantities)
+
+    return ray_quantity_list

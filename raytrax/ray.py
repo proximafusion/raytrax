@@ -18,6 +18,12 @@ class RayState:
     optical_depth: jt.Float[jax.Array, ""]
     arc_length: jt.Float[jax.Array, ""]
 
+@dataclass(frozen=True)
+class RayQuantities:
+    magnetic_field: jt.Float[jax.Array, "3"]
+    absorption_coefficient: jt.Float[jax.Array, ""]
+    electron_density: jt.Float[jax.Array, ""]
+    electron_temperature: jt.Float[jax.Array, ""]
 
 @dataclass(frozen=True)
 class Term:
