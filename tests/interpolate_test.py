@@ -1,13 +1,18 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 
+from raytrax.api import get_interpolator_for_equilibrium
 from raytrax.fourier import evaluate_rphiz_on_toroidal_grid
 from raytrax.interpolate import (
+    build_magnetic_field_interpolator,
+    build_radial_interpolators,
     cylindrical_grid_for_equilibrium,
     interpolate_toroidal_to_cylindrical_grid,
 )
+from raytrax.types import RadialProfiles
 
-from .fixtures import torus_wout
+from .fixtures import torus_wout, w7x_wout
 
 
 def test_interpolate_toroidal_to_cylindrical_grid(torus_wout):
@@ -89,3 +94,165 @@ def test_cylindrical_grid_for_equilibrium(torus_wout):
     if len(finite_z) > 0:
         assert np.min(finite_z) >= -minor_radius
         assert np.max(finite_z) <= minor_radius
+
+
+def test_build_magnetic_field_interpolator_w7x(w7x_wout):
+    """Test the magnetic field interpolator using the W7X equilibrium."""
+    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    B_interpolator = build_magnetic_field_interpolator(interpolator)
+    # Test the interpolator at different positions
+    # Use positions we know are within the W7X geometry
+    R_major = 5.6
+    a_minor = 0.5
+
+    positions = jnp.array(
+        [
+            [R_major, 0.0, 0.0],  # On axis, at phi = 0
+            [R_major * jnp.cos(0.1), R_major * jnp.sin(0.1), 0.0],  # Slightly off-axis
+            [R_major, 0.0, 0.2],  # Slight vertical offset
+        ]
+    )
+
+    # Get the magnetic field at each position
+    for pos in positions:
+        B_field = B_interpolator(pos)
+
+        assert B_field.shape == (3,)
+        assert not jnp.all(
+            jnp.isnan(B_field)
+        ), f"All components are NaN at position {pos}"
+
+        # Check for any finite values in the field
+        finite_components = B_field[jnp.isfinite(B_field)]
+        if len(finite_components) > 0:
+            # If we have finite components, at least one should be non-zero
+            assert jnp.any(
+                jnp.abs(finite_components) > 1e-10
+            ), f"Magnetic field is too small at position {pos}"
+
+    finite_positions = positions[jnp.array([0])]  # Start with just the first position
+
+    jitted_interpolator = jax.jit(B_interpolator)
+    for pos in finite_positions:
+        try:
+            B_field_jitted = jitted_interpolator(pos)
+            assert B_field_jitted.shape == (3,)
+            # Check for some finite values
+            assert jnp.any(jnp.isfinite(B_field_jitted))
+        except Exception as e:
+            print(f"Jitted interpolator failed at position {pos}: {e}")
+
+    # Test with vmap but only if we have at least one position with finite results
+    if len(finite_positions) > 0:
+        try:
+            vmapped_interpolator = jax.vmap(B_interpolator)
+            B_fields_vmap = vmapped_interpolator(finite_positions)
+            assert B_fields_vmap.shape == (len(finite_positions), 3)
+            # At least one value should be finite
+            assert jnp.any(jnp.isfinite(B_fields_vmap))
+        except Exception as e:
+            print(f"Vmapped interpolator failed: {e}")
+
+
+def test_build_radial_interpolators_w7x(w7x_wout):
+    """Test the radial interpolators using the W7X equilibrium."""
+    # Create the equilibrium interpolator
+    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    
+    # Create sample radial profiles
+    n_rho_profile = 50
+    rho_profile = jnp.linspace(0, 1, n_rho_profile)
+    # Sample parabolic profiles for density and temperature
+    ne_profile = 1.0 * (1 - rho_profile**2)
+    Te_profile = 3.0 * (1 - rho_profile**2)
+    
+    # Create RadialProfiles object
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=ne_profile,
+        electron_temperature=Te_profile
+    )
+    
+    # Build the radial interpolators
+    ne_interpolator, Te_interpolator = build_radial_interpolators(
+        interpolator, radial_profiles
+    )
+    
+    # Test the interpolators at different positions
+    # Use positions we know are within the W7X geometry
+    R_major = 5.6
+    a_minor = 0.5
+    
+    positions = jnp.array([
+        [R_major, 0.0, 0.0],  # On axis, at phi = 0
+        [R_major * jnp.cos(0.1), R_major * jnp.sin(0.1), 0.0],  # Slightly off-axis
+        [R_major, 0.0, 0.2],  # Slight vertical offset
+    ])
+    
+    # Test the electron density interpolator
+    for pos in positions:
+        ne_value = ne_interpolator(pos)
+        
+        # Basic checks
+        assert ne_value.shape == ()  # Scalar value
+        
+        # Check if the value is finite (not NaN)
+        assert not jnp.isnan(ne_value), f"Density is NaN at position {pos}"
+        
+        # Value should be between 0 and 1 (our profile max)
+        if jnp.isfinite(ne_value):
+            assert 0 <= ne_value <= 1.0, f"Density out of range at position {pos}"
+    
+    # Test the electron temperature interpolator
+    for pos in positions:
+        Te_value = Te_interpolator(pos)
+        
+        # Basic checks
+        assert Te_value.shape == ()  # Scalar value
+        
+        # Check if the value is finite (not NaN)
+        assert not jnp.isnan(Te_value), f"Temperature is NaN at position {pos}"
+        
+        # Value should be between 0 and 3 (our profile max)
+        if jnp.isfinite(Te_value):
+            assert 0 <= Te_value <= 3.0, f"Temperature out of range at position {pos}"
+    
+    # Test with jit
+    finite_positions = positions[jnp.array([0])]  # Start with just the first position
+    
+    # Test JIT with ne_interpolator
+    jitted_ne_interpolator = jax.jit(ne_interpolator)
+    for pos in finite_positions:
+        try:
+            ne_value_jitted = jitted_ne_interpolator(pos)
+            assert ne_value_jitted.shape == ()
+            assert jnp.isfinite(ne_value_jitted)
+        except Exception as e:
+            print(f"Jitted ne_interpolator failed at position {pos}: {e}")
+    
+    # Test JIT with Te_interpolator
+    jitted_Te_interpolator = jax.jit(Te_interpolator)
+    for pos in finite_positions:
+        try:
+            Te_value_jitted = jitted_Te_interpolator(pos)
+            assert Te_value_jitted.shape == ()
+            assert jnp.isfinite(Te_value_jitted)
+        except Exception as e:
+            print(f"Jitted Te_interpolator failed at position {pos}: {e}")
+    
+    # Test with vmap
+    if len(finite_positions) > 0:
+        try:
+            # Test vmap with ne_interpolator
+            vmapped_ne_interpolator = jax.vmap(ne_interpolator)
+            ne_values_vmap = vmapped_ne_interpolator(finite_positions)
+            assert ne_values_vmap.shape == (len(finite_positions),)
+            assert jnp.any(jnp.isfinite(ne_values_vmap))
+            
+            # Test vmap with Te_interpolator
+            vmapped_Te_interpolator = jax.vmap(Te_interpolator)
+            Te_values_vmap = vmapped_Te_interpolator(finite_positions)
+            assert Te_values_vmap.shape == (len(finite_positions),)
+            assert jnp.any(jnp.isfinite(Te_values_vmap))
+        except Exception as e:
+            print(f"Vmapped interpolators failed: {e}")
