@@ -143,6 +143,8 @@ def build_magnetic_field_interpolator(
         z=rphiz[0, 0, :, 2],
         f=Bxyz,
         method="linear",
+        # FIXME not a reasonable value
+        extrap=0.0,
     )
 
     def interpolator_cartesian(
@@ -185,23 +187,26 @@ def build_radial_interpolators(
         z=rphiz[0, 0, :, 2],
         f=rho,
         method="linear",
+        # When outside of the grid, return a value greater than 1
+        extrap=1.1,
     )
     Te_interpolator = interpax.Interpolator1D(
         x=radial_profiles.rho,
         f=radial_profiles.electron_temperature,
         method="linear",
+        extrap=0.0,
     )
     ne_interpolator = interpax.Interpolator1D(
         x=radial_profiles.rho,
         f=radial_profiles.electron_density,
         method="linear",
+        extrap=0.0,
     )
 
     def rho_interpolator_cartesian(
         position: jt.Float[jax.Array, "3"],
     ) -> jt.Float[jax.Array, ""]:
         # TODO handle symmetries
-        # TODO handle out of bounds
         return rho_interpolator(
             jnp.sqrt(position[0] ** 2 + position[1] ** 2),
             jnp.arctan2(position[1], position[0]),
@@ -212,14 +217,12 @@ def build_radial_interpolators(
         position: jt.Float[jax.Array, "3"],
     ) -> jt.Float[jax.Array, ""]:
         rho_at_position = rho_interpolator_cartesian(position)
-        # TODO handle out of bounds
         return ne_interpolator(rho_at_position)
 
     def Te_interpolator_cartesian(
         position: jt.Float[jax.Array, "3"],
     ) -> jt.Float[jax.Array, ""]:
         rho_at_position = rho_interpolator_cartesian(position)
-        # TODO handle out of bounds
         return Te_interpolator(rho_at_position)
 
     return ne_interpolator_cartesian, Te_interpolator_cartesian
