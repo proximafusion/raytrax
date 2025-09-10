@@ -1,7 +1,7 @@
-from tests.fixtures import w7x_wout
+from raytrax.data import get_w7x_wout
 
-
-def test_w7x_wout(w7x_wout):
+def test_w7x_wout():
+    w7x_wout = get_w7x_wout()
     """Test that the W7-X equilibrium fixture works correctly."""
     # Check that the equilibrium has the expected properties
     assert w7x_wout.ns > 0
