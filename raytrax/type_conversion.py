@@ -16,6 +16,7 @@ def ray_states_to_beam_profile(states: list[RayState], quantities: list[RayQuant
     electron_density = jnp.array([q.electron_density for q in quantities])
     electron_temperature = jnp.array([q.electron_temperature for q in quantities])
     magnetic_field = jnp.array([q.magnetic_field for q in quantities])
+    linear_power_density = jnp.array([q.linear_power_density for q in quantities])
     return BeamProfile(
         position=position,
         arc_length=arc_length,
@@ -25,6 +26,7 @@ def ray_states_to_beam_profile(states: list[RayState], quantities: list[RayQuant
         electron_density=electron_density,
         electron_temperature=electron_temperature,
         magnetic_field=magnetic_field,
+        linear_power_density=linear_power_density,
     )
 
 

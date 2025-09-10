@@ -90,6 +90,7 @@ def test_compute_additional_quantities():
                 absorption_coefficient=jnp.array(0.0),  # Placeholder
                 electron_density=electron_density,
                 electron_temperature=electron_temperature,
+                linear_power_density=jnp.array(0.0),  # Placeholder
             )
             result.append(ray_quantities)
         return result
@@ -105,7 +106,3 @@ def test_compute_additional_quantities():
     assert jnp.allclose(first_quantities.magnetic_field, jnp.array([10.0, 0.0, 0.0]))
     assert jnp.allclose(first_quantities.electron_density, jnp.array(0.1))
     assert jnp.allclose(first_quantities.electron_temperature, jnp.array(1.0))
-    
-    # This test demonstrates how to compute additional quantities using the ray states
-    # from the solve function. The real compute_additional_quantities function in solver.py
-    # has issues with vmap, but this test shows the concept works.

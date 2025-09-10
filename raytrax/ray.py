@@ -24,6 +24,7 @@ class RayQuantities:
     absorption_coefficient: jt.Float[jax.Array, ""]
     electron_density: jt.Float[jax.Array, ""]
     electron_temperature: jt.Float[jax.Array, ""]
+    linear_power_density: jt.Float[jax.Array, ""]
 
 @dataclass(frozen=True)
 class Term:

@@ -28,12 +28,14 @@ def test_ray_states_to_beam_profile():
             electron_density=jnp.array(1.0e19),
             electron_temperature=jnp.array(1.0e3),
             magnetic_field=jnp.array([1.0, 0.0, 0.0]),
+            linear_power_density=jnp.array(5.0),
         ),
         RayQuantities(
             absorption_coefficient=jnp.array(0.02),
             electron_density=jnp.array(2.0e19),
             electron_temperature=jnp.array(2.0e3),
             magnetic_field=jnp.array([0.0, 2.0, 0.0]),
+            linear_power_density=jnp.array(10.0),
         ),
     ]
     
@@ -87,6 +89,12 @@ def test_ray_states_to_beam_profile():
         beam_profile.magnetic_field,
         jnp.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
     )
+    
+    # Test linear power density
+    np.testing.assert_array_equal(
+        beam_profile.linear_power_density,
+        jnp.array([5.0, 10.0])
+    )
 
 
 def test_ray_states_to_radial_profile():
@@ -113,12 +121,14 @@ def test_ray_states_to_radial_profile():
             electron_density=jnp.array(1.0e19),
             electron_temperature=jnp.array(1.0e3),
             magnetic_field=jnp.array([1.0, 0.0, 0.0]),
+            linear_power_density=jnp.array(5.0),
         ),
         RayQuantities(
             absorption_coefficient=jnp.array(0.02),
             electron_density=jnp.array(2.0e19),
             electron_temperature=jnp.array(2.0e3),
             magnetic_field=jnp.array([0.0, 2.0, 0.0]),
+            linear_power_density=jnp.array(10.0),
         ),
     ]
     

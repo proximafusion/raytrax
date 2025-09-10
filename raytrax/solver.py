@@ -158,11 +158,14 @@ def compute_additional_quantities(
             mode=setting.mode,
         )
 
+        linear_power_density = absorption_coefficient * jnp.exp(-state.optical_depth)
+
         ray_quantities = ray.RayQuantities(
             magnetic_field=magnetic_field,
             absorption_coefficient=jnp.asarray(absorption_coefficient),
             electron_density=electron_density,
             electron_temperature=electron_temperature,
+            linear_power_density=linear_power_density,
         )
         ray_quantity_list.append(ray_quantities)
 

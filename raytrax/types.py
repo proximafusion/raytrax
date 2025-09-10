@@ -66,6 +66,9 @@ class BeamProfile:
 
     magnetic_field: jt.Float[jax.Array, "npoints 3"]
     """The magnetic field vector along the beam in T."""
+    
+    linear_power_density: jt.Float[jax.Array, "npoints"]
+    """The linear power density along the beam."""
 
 
 @dataclass
