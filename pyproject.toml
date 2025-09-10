@@ -12,6 +12,7 @@ dependencies = [
   "scipy",
   "interpax",
   "beartype",
+  "vmecpp",
 ]
 requires-python = ">=3.10"
 authors = [
