@@ -141,9 +141,9 @@ def build_magnetic_field_interpolator(
         x=rphiz[:, 0, 0, 0],
         y=rphiz[0, :, 0, 1],
         z=rphiz[0, 0, :, 2],
-        f=Bxyz,
-        method="linear",
         # FIXME not a reasonable value
+        f=jnp.nan_to_num(Bxyz, nan=0.0),
+        method="linear",
         extrap=0.0,
     )
 
@@ -185,7 +185,7 @@ def build_radial_interpolators(
         x=rphiz[:, 0, 0, 0],
         y=rphiz[0, :, 0, 1],
         z=rphiz[0, 0, :, 2],
-        f=rho,
+        f=jnp.nan_to_num(rho, nan=1.1),
         method="linear",
         # When outside of the grid, return a value greater than 1
         extrap=1.1,
