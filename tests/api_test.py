@@ -50,16 +50,16 @@ def test_get_interpolator_for_equilibrium_w7x(w7x_wout):
 def test_trace_w7x_beam(w7x_wout):
     """Test the trace function with W7-X equilibrium and a specific beam position/direction."""
     # Beam position
-    r = 6.55803
-    phi = -6.56692
-    z = -0.1
+    r = 6.50866
+    phi = np.deg2rad(-6.56378)
+    z = 0.38
     x = r * np.cos(phi)
     y = r * np.sin(phi)
     position = jnp.array([x, y, z])
 
     # Beam direction starting from W7-X aiming angles
-    alpha = np.deg2rad(4.59997)
-    beta = np.deg2rad(20.4)
+    alpha = np.deg2rad(15.7)
+    beta = np.deg2rad(19.7001)
     d_r = -np.cos(alpha) * np.cos(beta)
     d_phi = np.cos(alpha) * np.sin(beta)
     d_z = np.sin(alpha)
