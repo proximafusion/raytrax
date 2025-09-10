@@ -22,8 +22,10 @@ def hamiltonian(
     """Compute the Hamiltonian."""
     magnetic_field = magnetic_field_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_interpolator(position)
+    # FIXME add back cold tracing
+    return _hamiltonian_vacuum(refractive_index=refractive_index)
     return jax.lax.cond(
-        electron_density_1e20_per_m3 < 1e-6,
+        electron_density_1e20_per_m3 < 1e6,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
         ),
