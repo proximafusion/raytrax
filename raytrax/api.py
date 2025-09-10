@@ -52,9 +52,10 @@ def trace(
     Returns:
         A TracingResult object containing the results of the tracing.
     """
+    # Use the beam direction as the initial refractive index direction
     initial_state = RayState(
         position=jnp.asarray(beam.position),
-        refractive_index=jnp.array([0.0, 0.0, 0.0]),
+        refractive_index=jnp.asarray(beam.direction),
         optical_depth=jnp.array(0.0),
         arc_length=jnp.array(0.0),
     )
