@@ -55,6 +55,18 @@ class BeamProfile:
     optical_depth: jt.Float[jax.Array, "npoints"]
     """The optical depth along the beam."""
 
+    absorption_coefficient: jt.Float[jax.Array, "npoints"]
+    """The absorption coefficient along the beam."""
+
+    electron_density: jt.Float[jax.Array, "npoints"]
+    """The electron density along the beam in units of 10^20 m^-3."""
+
+    electron_temperature: jt.Float[jax.Array, "npoints"]
+    """The electron temperature along the beam in keV."""
+
+    magnetic_field: jt.Float[jax.Array, "npoints 3"]
+    """The magnetic field vector along the beam in T."""
+
 
 @dataclass
 class RadialProfile:

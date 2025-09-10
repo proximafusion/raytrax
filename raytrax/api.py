@@ -8,7 +8,7 @@ from .interpolate import (
     cylindrical_grid_for_equilibrium,
 )
 from .ray import RaySetting, RayState
-from .solver import solve
+from .solver import solve, compute_additional_quantities
 from .type_conversion import ray_states_to_beam_profile, ray_states_to_radial_profile
 from .types import (
     Beam,
@@ -65,13 +65,20 @@ def trace(
     electron_density_interpolator, electron_temperature_interpolator = (
         build_radial_interpolators(equilibrium_interpolator, radial_profiles)
     )
-    states = solve(
+    ray_states = solve(
         state=initial_state,
         setting=setting,
         magnetic_field_interpolator=magnetic_field_interpolator,
         electron_density_interpolator=electron_density_interpolator,
         electron_temperature_interpolator=electron_temperature_interpolator,
     )
-    beam_profile = ray_states_to_beam_profile(states)
-    radial_profile = ray_states_to_radial_profile(states)
+    additional_quantities = compute_additional_quantities(
+        ray_states=ray_states,
+        setting=setting,
+        magnetic_field_interpolator=magnetic_field_interpolator,
+        electron_density_interpolator=electron_density_interpolator,
+        electron_temperature_interpolator=electron_temperature_interpolator,
+    )
+    beam_profile = ray_states_to_beam_profile(ray_states, additional_quantities)
+    radial_profile = ray_states_to_radial_profile(ray_states, additional_quantities)
     return TracingResult(beam_profile=beam_profile, radial_profile=radial_profile)
