@@ -7,6 +7,9 @@ from raytrax.fourier import evaluate_rphiz_on_toroidal_grid
 from raytrax.interpolate import (
     build_magnetic_field_interpolator,
     build_radial_interpolators,
+    build_rho_interpolator,
+    build_electron_density_profile_interpolator,
+    build_electron_temperature_profile_interpolator,
     cylindrical_grid_for_equilibrium,
     interpolate_toroidal_to_cylindrical_grid,
 )
@@ -173,10 +176,19 @@ def test_build_radial_interpolators_w7x(w7x_wout):
         electron_temperature=Te_profile
     )
     
-    # Build the radial interpolators
-    ne_interpolator, Te_interpolator = build_radial_interpolators(
-        interpolator, radial_profiles
-    )
+    # Build the radial interpolators using the new individual functions
+    rho_interpolator = build_rho_interpolator(interpolator)
+    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
+    
+    # Create composite functions for testing (similar to the old API behavior)
+    def ne_interpolator(position):
+        rho_value = rho_interpolator(position)
+        return ne_profile_interpolator(rho_value)
+    
+    def Te_interpolator(position):
+        rho_value = rho_interpolator(position)
+        return Te_profile_interpolator(rho_value)
     
     # Test the interpolators at different positions
     # Use positions we know are within the W7X geometry
@@ -255,3 +267,51 @@ def test_build_radial_interpolators_w7x(w7x_wout):
             assert jnp.any(jnp.isfinite(Te_values_vmap))
         except Exception as e:
             print(f"Vmapped interpolators failed: {e}")
+
+
+def test_individual_interpolator_functions_w7x(w7x_wout):
+    """Test the individual interpolator building functions."""
+    # Create the equilibrium interpolator
+    equilibrium_interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    
+    # Create sample radial profiles
+    n_rho_profile = 50
+    rho_profile = jnp.linspace(0, 1, n_rho_profile)
+    ne_profile = 1.0 * (1 - rho_profile**2)
+    Te_profile = 3.0 * (1 - rho_profile**2)
+    
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=ne_profile,
+        electron_temperature=Te_profile
+    )
+    
+    # Test individual functions
+    rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
+    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
+    
+    # Test rho interpolator
+    test_position = jnp.array([6.0, 0.0, 0.0])
+    rho_value = rho_interpolator(test_position)
+    assert rho_value.shape == ()
+    assert jnp.isfinite(rho_value)
+    
+    # Test profile interpolators with known rho values
+    test_rho_values = jnp.array([0.0, 0.5, 1.0])
+    
+    for test_rho in test_rho_values:
+        ne_value = ne_profile_interpolator(test_rho)
+        Te_value = Te_profile_interpolator(test_rho)
+        
+        assert ne_value.shape == ()
+        assert Te_value.shape == ()
+        assert jnp.isfinite(ne_value)
+        assert jnp.isfinite(Te_value)
+        
+        # Check that the values match the expected profile
+        expected_ne = 1.0 * (1 - test_rho**2)
+        expected_Te = 3.0 * (1 - test_rho**2)
+        
+        assert jnp.allclose(ne_value, expected_ne, rtol=1e-3)
+        assert jnp.allclose(Te_value, expected_Te, rtol=1e-3)

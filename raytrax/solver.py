@@ -47,11 +47,14 @@ def _right_hand_side(
     magnetic_field_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
     ],
-    electron_temperature_interpolator: Callable[
-        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
+    electron_density_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
+    ],
+    electron_temperature_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
     ],
 ) -> jt.Float[jax.Array, " n "]:
     r"""Compute the right-hand side of the differential equation.
@@ -70,10 +73,10 @@ def _right_hand_side(
     """  # noqa: E501
     state = _y_to_state(y, s=s)
     hamiltonian_gradient_n = hamiltonian.hamiltonian_gradient_n(
-        state, setting, magnetic_field_interpolator, electron_density_interpolator
+        state, setting, magnetic_field_interpolator, rho_interpolator, electron_density_profile_interpolator
     )
     hamiltonian_gradient_r = hamiltonian.hamiltonian_gradient_r(
-        state, setting, magnetic_field_interpolator, electron_density_interpolator
+        state, setting, magnetic_field_interpolator, rho_interpolator, electron_density_profile_interpolator
     )
     norm = jnp.linalg.norm(hamiltonian_gradient_n)
     # FIXME add back absorption
@@ -100,7 +103,7 @@ def _straight_line_trace(
     magnetic_field_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
     ],
     step_size: float = 0.01,
@@ -116,7 +119,7 @@ def _straight_line_trace(
         position: Starting position vector
         direction: Normalized direction vector for the straight line
         magnetic_field_interpolator: Function to evaluate magnetic field at a position
-        electron_density_interpolator: Function to evaluate electron density at a position
+        rho_interpolator: Function to evaluate radial coordinate at a position
         step_size: Size of each step along the straight line
         max_steps: Maximum number of steps to take
 
@@ -125,8 +128,8 @@ def _straight_line_trace(
     """
     # Check if we're already at a valid position
     initial_B = magnetic_field_interpolator(position)
-    initial_ne = electron_density_interpolator(position)
-    initial_valid = jnp.logical_and(jnp.linalg.norm(initial_B) > 0, initial_ne > 0)
+    initial_rho = rho_interpolator(position)
+    initial_valid = jnp.logical_and(jnp.linalg.norm(initial_B) > 0, initial_rho <= 1.0)
 
     # Condition function for lax.while_loop that determines when to stop the loop
     # Continues if we haven't found a valid point yet and haven't exceeded max_steps
@@ -140,8 +143,8 @@ def _straight_line_trace(
         new_pos = pos + step_size * direction
 
         B = magnetic_field_interpolator(new_pos)
-        ne = electron_density_interpolator(new_pos)
-        new_found_valid = jnp.logical_and(jnp.linalg.norm(B) > 0, ne > 0)
+        rho = rho_interpolator(new_pos)
+        new_found_valid = jnp.logical_and(jnp.linalg.norm(B) > 0, rho <= 1.0)
 
         # Return updated state tuple (position, step count, validity flag)
         return (new_pos, step_count + 1, new_found_valid)
@@ -161,11 +164,14 @@ def solve(
     magnetic_field_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
     ],
-    electron_temperature_interpolator: Callable[
-        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
+    electron_density_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
+    ],
+    electron_temperature_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
     ],
     use_straight_line_init: bool = True,
     straight_line_step_size: float = 0.01,
@@ -180,8 +186,9 @@ def solve(
         state: Initial ray state
         setting: Ray tracing settings
         magnetic_field_interpolator: Function to evaluate magnetic field at a position
-        electron_density_interpolator: Function to evaluate electron density at a position
-        electron_temperature_interpolator: Function to evaluate electron temperature at a position
+        rho_interpolator: Function to evaluate radial coordinate at a position
+        electron_density_profile_interpolator: Function to evaluate electron density at a radial coordinate
+        electron_temperature_profile_interpolator: Function to evaluate electron temperature at a radial coordinate
         use_straight_line_init: Whether to use straight line tracing to find valid starting point
         straight_line_step_size: Size of each step for straight line tracing
         max_straight_line_steps: Maximum number of steps for straight line tracing
@@ -201,14 +208,14 @@ def solve(
             _straight_line_trace,
             static_argnames=[
                 "magnetic_field_interpolator",
-                "electron_density_interpolator",
+                "rho_interpolator",
             ],
         )
         initial_position = straight_line_trace_jit(
             position=initial_position,
             direction=direction,
             magnetic_field_interpolator=magnetic_field_interpolator,
-            electron_density_interpolator=electron_density_interpolator,
+            rho_interpolator=rho_interpolator,
             step_size=straight_line_step_size,
             max_steps=max_straight_line_steps,
         )
@@ -223,8 +230,9 @@ def solve(
         _right_hand_side,
         setting=setting,
         magnetic_field_interpolator=magnetic_field_interpolator,
-        electron_density_interpolator=electron_density_interpolator,
-        electron_temperature_interpolator=electron_temperature_interpolator,
+        rho_interpolator=rho_interpolator,
+        electron_density_profile_interpolator=electron_density_profile_interpolator,
+        electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
     )
     y0 = _state_to_y(state)
     jitted_fun = jax.jit(fun)
@@ -246,11 +254,14 @@ def compute_additional_quantities(
     magnetic_field_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
     ],
-    electron_temperature_interpolator: Callable[
-        [jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]
+    electron_density_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
+    ],
+    electron_temperature_profile_interpolator: Callable[
+        [jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]
     ],
 ) -> list[ray.RayQuantities]:
     """Compute additional quantities for the ray states."""
@@ -261,8 +272,9 @@ def compute_additional_quantities(
         refractive_index = state.refractive_index
 
         magnetic_field = magnetic_field_interpolator(position)
-        electron_density = electron_density_interpolator(position)
-        electron_temperature = electron_temperature_interpolator(position)
+        rho = rho_interpolator(position)
+        electron_density = electron_density_profile_interpolator(rho)
+        electron_temperature = electron_temperature_profile_interpolator(rho)
 
         absorption_coefficient = absorption.absorption_coefficient_conditional(
             refractive_index=refractive_index,

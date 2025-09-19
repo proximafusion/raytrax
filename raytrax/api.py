@@ -4,7 +4,9 @@ import jax.numpy as jnp
 
 from .interpolate import (
     build_magnetic_field_interpolator,
-    build_radial_interpolators,
+    build_rho_interpolator,
+    build_electron_density_profile_interpolator,
+    build_electron_temperature_profile_interpolator,
     cylindrical_grid_for_equilibrium,
 )
 from .ray import RaySetting, RayState
@@ -63,22 +65,24 @@ def trace(
     magnetic_field_interpolator = build_magnetic_field_interpolator(
         equilibrium_interpolator
     )
-    electron_density_interpolator, electron_temperature_interpolator = (
-        build_radial_interpolators(equilibrium_interpolator, radial_profiles)
-    )
+    rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
+    electron_density_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
+    electron_temperature_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
     ray_states = solve(
         state=initial_state,
         setting=setting,
         magnetic_field_interpolator=magnetic_field_interpolator,
-        electron_density_interpolator=electron_density_interpolator,
-        electron_temperature_interpolator=electron_temperature_interpolator,
+        rho_interpolator=rho_interpolator,
+        electron_density_profile_interpolator=electron_density_profile_interpolator,
+        electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
     )
     additional_quantities = compute_additional_quantities(
         ray_states=ray_states,
         setting=setting,
         magnetic_field_interpolator=magnetic_field_interpolator,
-        electron_density_interpolator=electron_density_interpolator,
-        electron_temperature_interpolator=electron_temperature_interpolator,
+        rho_interpolator=rho_interpolator,
+        electron_density_profile_interpolator=electron_density_profile_interpolator,
+        electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
     )
     beam_profile = ray_states_to_beam_profile(ray_states, additional_quantities)
     radial_profile = ray_states_to_radial_profile(ray_states, additional_quantities)

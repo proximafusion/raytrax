@@ -25,19 +25,23 @@ def test_ray_tracing():
 
     def magnetic_field_interpolator(position):
         return jnp.array([10.0, 0.0, 0.0])
+    
+    def rho_interpolator(position):
+        return jnp.array(0.5)
 
-    def electron_density_interpolator(position):
+    def electron_density_profile_interpolator(rho):
         return jnp.array(0.1)
 
-    def electron_temperature_interpolator(position):
+    def electron_temperature_profile_interpolator(rho):
         return jnp.array(1.0)
 
     solution = solver.solve(
         state,
         setting,
         magnetic_field_interpolator,
-        electron_density_interpolator,
-        electron_temperature_interpolator,
+        rho_interpolator,
+        electron_density_profile_interpolator,
+        electron_temperature_profile_interpolator,
     )
     print(solution)
 
@@ -59,12 +63,16 @@ def test_compute_additional_quantities():
     def magnetic_field_interpolator(position):
         # Return a 3D vector regardless of input shape
         return jnp.array([10.0, 0.0, 0.0])
+    
+    def rho_interpolator(position):
+        # Return a scalar
+        return jnp.array(0.5)
 
-    def electron_density_interpolator(position):
+    def electron_density_profile_interpolator(rho):
         # Return a scalar
         return jnp.array(0.1)
 
-    def electron_temperature_interpolator(position):
+    def electron_temperature_profile_interpolator(rho):
         # Return a scalar
         return jnp.array(1.0)
 
@@ -73,8 +81,9 @@ def test_compute_additional_quantities():
         state,
         setting,
         magnetic_field_interpolator,
-        electron_density_interpolator,
-        electron_temperature_interpolator,
+        rho_interpolator,
+        electron_density_profile_interpolator,
+        electron_temperature_profile_interpolator,
     )
     
     # Create a custom implementation of compute_additional_quantities without vmap
@@ -82,9 +91,10 @@ def test_compute_additional_quantities():
         result = []
         for state in ray_states:
             magnetic_field = magnetic_field_interpolator(state.position)
-            electron_density = electron_density_interpolator(state.position)
-            electron_temperature = electron_temperature_interpolator(state.position)
-            
+            rho = rho_interpolator(state.position)
+            electron_density = electron_density_profile_interpolator(rho)
+            electron_temperature = electron_temperature_profile_interpolator(rho)
+
             ray_quantities = ray.RayQuantities(
                 magnetic_field=magnetic_field,
                 absorption_coefficient=jnp.array(0.0),  # Placeholder
