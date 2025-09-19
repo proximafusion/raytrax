@@ -189,7 +189,7 @@ def compute_resonance_integral(
     nY = harmonic_index * cyclotron_frequency / frequency
     n_para = refractive_index_para
     denom = 1 - n_para**2
-    delta_u = jnp.sqrt(n_para**2 + nY**2 - 1) / abs(denom)
+    delta_u = jnp.sqrt(n_para**2 + nY**2 - 1) / jnp.abs(denom)
     u_res = nY * n_para / denom
     u_min = u_res - delta_u
     u_max = u_res + delta_u
