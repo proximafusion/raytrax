@@ -161,22 +161,16 @@ def build_magnetic_field_interpolator(
     return interpolator_cartesian
 
 
-def build_radial_interpolators(
+def build_rho_interpolator(
     equilibrium_interpolator: EquilibriumInterpolator,
-    radial_profiles: RadialProfiles,
-) -> tuple[
-    Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]],
-    Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]],
-]:
-    """Build radial interpolators for the given equilibrium and radial profiles.
+) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]]:
+    """Build rho interpolator for the given equilibrium.
 
     Args:
         equilibrium_interpolator: The equilibrium interpolator.
-        radial_profiles: The radial profiles.
 
     Returns:
-        A tuple of two functions that interpolate the electron density and
-        temperature at a given position.
+        A function that maps position to radial coordinate (rho).
     """
     rho = equilibrium_interpolator.rho
     rphiz = equilibrium_interpolator.rphiz
@@ -190,18 +184,6 @@ def build_radial_interpolators(
         # When outside of the grid, return a value greater than 1
         extrap=1.1,
     )
-    Te_interpolator = interpax.Interpolator1D(
-        x=radial_profiles.rho,
-        f=radial_profiles.electron_temperature,
-        method="linear",
-        extrap=0.0,
-    )
-    ne_interpolator = interpax.Interpolator1D(
-        x=radial_profiles.rho,
-        f=radial_profiles.electron_density,
-        method="linear",
-        extrap=0.0,
-    )
 
     def rho_interpolator_cartesian(
         position: jt.Float[jax.Array, "3"],
@@ -213,16 +195,86 @@ def build_radial_interpolators(
             position[2],
         )
 
-    def ne_interpolator_cartesian(
-        position: jt.Float[jax.Array, "3"],
-    ) -> jt.Float[jax.Array, ""]:
-        rho_at_position = rho_interpolator_cartesian(position)
-        return ne_interpolator(rho_at_position)
+    return rho_interpolator_cartesian
 
-    def Te_interpolator_cartesian(
-        position: jt.Float[jax.Array, "3"],
-    ) -> jt.Float[jax.Array, ""]:
-        rho_at_position = rho_interpolator_cartesian(position)
-        return Te_interpolator(rho_at_position)
 
-    return ne_interpolator_cartesian, Te_interpolator_cartesian
+def build_electron_density_profile_interpolator(
+    radial_profiles: RadialProfiles,
+) -> Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]]:
+    """Build electron density profile interpolator.
+
+    Args:
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A function that maps rho to electron density.
+    """
+    ne_interpolator = interpax.Interpolator1D(
+        x=radial_profiles.rho,
+        f=radial_profiles.electron_density,
+        method="linear",
+        extrap=0.0,
+    )
+
+    def ne_profile_interpolator(
+        rho: jt.Float[jax.Array, ""],
+    ) -> jt.Float[jax.Array, ""]:
+        return ne_interpolator(rho)
+
+    return ne_profile_interpolator
+
+
+def build_electron_temperature_profile_interpolator(
+    radial_profiles: RadialProfiles,
+) -> Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]]:
+    """Build electron temperature profile interpolator.
+
+    Args:
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A function that maps rho to electron temperature.
+    """
+    Te_interpolator = interpax.Interpolator1D(
+        x=radial_profiles.rho,
+        f=radial_profiles.electron_temperature,
+        method="linear",
+        extrap=0.0,
+    )
+
+    def Te_profile_interpolator(
+        rho: jt.Float[jax.Array, ""],
+    ) -> jt.Float[jax.Array, ""]:
+        return Te_interpolator(rho)
+
+    return Te_profile_interpolator
+
+
+def build_radial_interpolators(
+    equilibrium_interpolator: EquilibriumInterpolator,
+    radial_profiles: RadialProfiles,
+) -> tuple[
+    Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]],
+    Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]],
+    Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]],
+]:
+    """Build radial interpolators for the given equilibrium and radial profiles.
+    
+    This is a convenience function that combines the individual interpolator builders.
+    For cleaner code, consider using the individual functions directly.
+
+    Args:
+        equilibrium_interpolator: The equilibrium interpolator.
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A tuple of three functions:
+        - rho_interpolator: maps position to radial coordinate (rho)
+        - electron_density_profile_interpolator: maps rho to electron density
+        - electron_temperature_profile_interpolator: maps rho to electron temperature
+    """
+    rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
+    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
+    
+    return rho_interpolator, ne_profile_interpolator, Te_profile_interpolator
