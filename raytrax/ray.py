@@ -25,6 +25,7 @@ class RayQuantities:
     electron_density: jt.Float[jax.Array, ""]
     electron_temperature: jt.Float[jax.Array, ""]
     linear_power_density: jt.Float[jax.Array, ""]
+    normalized_effective_radius: jt.Float[jax.Array, ""]
 
 @dataclass(frozen=True)
 class Term:

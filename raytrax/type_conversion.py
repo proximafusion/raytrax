@@ -32,7 +32,5 @@ def ray_states_to_beam_profile(states: list[RayState], quantities: list[RayQuant
 
 def ray_states_to_radial_profile(states: list[RayState], quantities: list[RayQuantities]) -> RadialProfile:
     """Convert a list of RayState objects to a RadialProfile object."""
-    # Placeholder implementation: in a real implementation, this would project
-    # the deposition profile onto the radial coordinate.
-    rho = jnp.array([jnp.linalg.norm(state.position) for state in states])
+    rho = jnp.array([q.normalized_effective_radius for q in quantities])
     return RadialProfile(rho=rho)

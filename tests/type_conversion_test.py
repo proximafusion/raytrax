@@ -29,6 +29,7 @@ def test_ray_states_to_beam_profile():
             electron_temperature=jnp.array(1.0e3),
             magnetic_field=jnp.array([1.0, 0.0, 0.0]),
             linear_power_density=jnp.array(5.0),
+            normalized_effective_radius=jnp.array(0.5),
         ),
         RayQuantities(
             absorption_coefficient=jnp.array(0.02),
@@ -36,6 +37,7 @@ def test_ray_states_to_beam_profile():
             electron_temperature=jnp.array(2.0e3),
             magnetic_field=jnp.array([0.0, 2.0, 0.0]),
             linear_power_density=jnp.array(10.0),
+            normalized_effective_radius=jnp.array(0.8),
         ),
     ]
     
@@ -122,6 +124,7 @@ def test_ray_states_to_radial_profile():
             electron_temperature=jnp.array(1.0e3),
             magnetic_field=jnp.array([1.0, 0.0, 0.0]),
             linear_power_density=jnp.array(5.0),
+            normalized_effective_radius=jnp.array(0.6),
         ),
         RayQuantities(
             absorption_coefficient=jnp.array(0.02),
@@ -129,14 +132,15 @@ def test_ray_states_to_radial_profile():
             electron_temperature=jnp.array(2.0e3),
             magnetic_field=jnp.array([0.0, 2.0, 0.0]),
             linear_power_density=jnp.array(10.0),
+            normalized_effective_radius=jnp.array(0.9),
         ),
     ]
     
     # Convert to radial profile
     radial_profile = ray_states_to_radial_profile(states, quantities)
     
-    # Test rho values (position norms)
+    # Test rho values (normalized effective radius from quantities)
     np.testing.assert_array_equal(
         radial_profile.rho,
-        jnp.array([5.0, 5.0])  # √(3² + 4² + 0²) = 5.0, √(0² + 0² + 5²) = 5.0
+        jnp.array([0.6, 0.9])  # normalized_effective_radius from RayQuantities
     )

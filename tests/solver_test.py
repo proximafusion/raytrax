@@ -101,6 +101,7 @@ def test_compute_additional_quantities():
                 electron_density=electron_density,
                 electron_temperature=electron_temperature,
                 linear_power_density=jnp.array(0.0),  # Placeholder
+                normalized_effective_radius=rho,
             )
             result.append(ray_quantities)
         return result

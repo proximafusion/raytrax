@@ -293,6 +293,7 @@ def compute_additional_quantities(
             electron_density=electron_density,
             electron_temperature=electron_temperature,
             linear_power_density=linear_power_density,
+            normalized_effective_radius=rho,
         )
         ray_quantity_list.append(ray_quantities)
 
