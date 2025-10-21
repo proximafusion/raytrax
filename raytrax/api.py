@@ -37,7 +37,12 @@ def get_interpolator_for_equilibrium(equilibrium: WoutLike) -> EquilibriumInterp
     rphiz = interpolated_array[..., :3]
     rho = interpolated_array[..., 3]
     magnetic_field = interpolated_array[..., 4:]
-    return EquilibriumInterpolator(rphiz=rphiz, magnetic_field=magnetic_field, rho=rho)
+    return EquilibriumInterpolator(
+        rphiz=rphiz, 
+        magnetic_field=magnetic_field, 
+        rho=rho, 
+        equilibrium=equilibrium
+    )
 
 
 def trace(
@@ -85,5 +90,7 @@ def trace(
         electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
     )
     beam_profile = ray_states_to_beam_profile(ray_states, additional_quantities)
-    radial_profile = ray_states_to_radial_profile(ray_states, additional_quantities)
+    radial_profile = ray_states_to_radial_profile(
+        ray_states, additional_quantities, equilibrium_interpolator.equilibrium
+    )
     return TracingResult(beam_profile=beam_profile, radial_profile=radial_profile)

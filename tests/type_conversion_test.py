@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import numpy as np
 from raytrax.type_conversion import ray_states_to_beam_profile, ray_states_to_radial_profile
 from raytrax.ray import RayState, RayQuantities
+from tests.fixtures import torus_wout
 
 
 def test_ray_states_to_beam_profile():
@@ -99,7 +100,7 @@ def test_ray_states_to_beam_profile():
     )
 
 
-def test_ray_states_to_radial_profile():
+def test_ray_states_to_radial_profile(torus_wout):
     # Create some test ray states
     states = [
         RayState(
@@ -137,10 +138,17 @@ def test_ray_states_to_radial_profile():
     ]
     
     # Convert to radial profile
-    radial_profile = ray_states_to_radial_profile(states, quantities)
+    radial_profile = ray_states_to_radial_profile(states, quantities, torus_wout)
     
-    # Test rho values (normalized effective radius from quantities)
+    # Check that we have the ray points (not a binned grid)
+    assert len(radial_profile.rho) == 2  # Same as number of ray points
     np.testing.assert_array_equal(
         radial_profile.rho,
         jnp.array([0.6, 0.9])  # normalized_effective_radius from RayQuantities
     )
+    
+    # Check volumetric power density field exists
+    assert hasattr(radial_profile, 'volumetric_power_density')
+    assert radial_profile.volumetric_power_density.shape == radial_profile.rho.shape
+    assert jnp.all(jnp.isfinite(radial_profile.volumetric_power_density))
+    assert jnp.all(radial_profile.volumetric_power_density >= 0)  # Should be non-negative

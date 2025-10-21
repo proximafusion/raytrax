@@ -79,6 +79,9 @@ class RadialProfile:
 
     rho: jt.Float[jax.Array, "npoints"]
     """The normalized effective minor radius."""
+    
+    volumetric_power_density: jt.Float[jax.Array, "npoints"]
+    """The volumetric power density in W/m³."""
 
 
 @dataclass
@@ -104,6 +107,9 @@ class EquilibriumInterpolator:
 
     rho: jt.Float[jax.Array, "npoints"]
     """The normalized effective minor radius at each point on the interpolation grid."""
+    
+    equilibrium: WoutLike
+    """The original equilibrium data."""
 
 @dataclass
 class RadialProfiles:
