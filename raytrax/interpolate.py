@@ -10,6 +10,8 @@ import jax
 import jax.numpy as jnp
 import jaxtyping as jt
 import numpy as np
+import interpax
+from typing import Callable
 from beartype import beartype as typechecker
 from scipy.interpolate import griddata
 
@@ -17,7 +19,7 @@ from .fourier import (
     evaluate_magnetic_field_on_toroidal_grid,
     evaluate_rphiz_on_toroidal_grid,
 )
-from .types import WoutLike
+from .types import WoutLike, EquilibriumInterpolator, RadialProfiles
 
 
 @jt.jaxtyped(typechecker=typechecker)
@@ -27,7 +29,7 @@ def interpolate_toroidal_to_cylindrical_grid(
     value_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi n_values"],
 ) -> jt.Float[jax.Array, "n_r n_phi n_z n_values"]:
     """Interpolate toroidal coordinates to a cylindrical grid.
-    
+
     Args:
     - rphiz_toroidal: An array of cylindrical coordinates (the last dimension
         are the three coordinates r, phi, z) on the toroidal grid.
@@ -127,3 +129,152 @@ def cylindrical_grid_for_equilibrium(
     )
     result = jnp.concatenate([rphiz_cylindrical, rhoBxyz_cylindrical], axis=-1)
     return result
+
+
+def build_magnetic_field_interpolator(
+    equilibrium_interpolator: EquilibriumInterpolator,
+) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]]:
+    """Build a magnetic field interpolator from the equilibrium interpolator."""
+    Bxyz = equilibrium_interpolator.magnetic_field
+    rphiz = equilibrium_interpolator.rphiz
+    interpolator = interpax.Interpolator3D(
+        x=rphiz[:, 0, 0, 0],
+        y=rphiz[0, :, 0, 1],
+        z=rphiz[0, 0, :, 2],
+        # FIXME not a reasonable value
+        f=jnp.nan_to_num(Bxyz, nan=0.0),
+        method="linear",
+        extrap=0.0,
+    )
+
+    def interpolator_cartesian(
+        position: jt.Float[jax.Array, "3"],
+    ) -> jt.Float[jax.Array, "3"]:
+        # TODO handle symmetries
+        # TODO handle out of bounds
+        return interpolator(
+            jnp.sqrt(position[0] ** 2 + position[1] ** 2),
+            jnp.arctan2(position[1], position[0]),
+            position[2],
+        )
+
+    return interpolator_cartesian
+
+
+def build_rho_interpolator(
+    equilibrium_interpolator: EquilibriumInterpolator,
+) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]]:
+    """Build rho interpolator for the given equilibrium.
+
+    Args:
+        equilibrium_interpolator: The equilibrium interpolator.
+
+    Returns:
+        A function that maps position to radial coordinate (rho).
+    """
+    rho = equilibrium_interpolator.rho
+    rphiz = equilibrium_interpolator.rphiz
+
+    rho_interpolator = interpax.Interpolator3D(
+        x=rphiz[:, 0, 0, 0],
+        y=rphiz[0, :, 0, 1],
+        z=rphiz[0, 0, :, 2],
+        f=jnp.nan_to_num(rho, nan=1.1),
+        method="linear",
+        # When outside of the grid, return a value greater than 1
+        extrap=1.1,
+    )
+
+    def rho_interpolator_cartesian(
+        position: jt.Float[jax.Array, "3"],
+    ) -> jt.Float[jax.Array, ""]:
+        # TODO handle symmetries
+        return rho_interpolator(
+            jnp.sqrt(position[0] ** 2 + position[1] ** 2),
+            jnp.arctan2(position[1], position[0]),
+            position[2],
+        )
+
+    return rho_interpolator_cartesian
+
+
+def build_electron_density_profile_interpolator(
+    radial_profiles: RadialProfiles,
+) -> Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]]:
+    """Build electron density profile interpolator.
+
+    Args:
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A function that maps rho to electron density.
+    """
+    ne_interpolator = interpax.Interpolator1D(
+        x=radial_profiles.rho,
+        f=radial_profiles.electron_density,
+        method="linear",
+        extrap=0.0,
+    )
+
+    def ne_profile_interpolator(
+        rho: jt.Float[jax.Array, ""],
+    ) -> jt.Float[jax.Array, ""]:
+        return ne_interpolator(rho)
+
+    return ne_profile_interpolator
+
+
+def build_electron_temperature_profile_interpolator(
+    radial_profiles: RadialProfiles,
+) -> Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]]:
+    """Build electron temperature profile interpolator.
+
+    Args:
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A function that maps rho to electron temperature.
+    """
+    Te_interpolator = interpax.Interpolator1D(
+        x=radial_profiles.rho,
+        f=radial_profiles.electron_temperature,
+        method="linear",
+        extrap=0.0,
+    )
+
+    def Te_profile_interpolator(
+        rho: jt.Float[jax.Array, ""],
+    ) -> jt.Float[jax.Array, ""]:
+        return Te_interpolator(rho)
+
+    return Te_profile_interpolator
+
+
+def build_radial_interpolators(
+    equilibrium_interpolator: EquilibriumInterpolator,
+    radial_profiles: RadialProfiles,
+) -> tuple[
+    Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]],
+    Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]],
+    Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]],
+]:
+    """Build radial interpolators for the given equilibrium and radial profiles.
+    
+    This is a convenience function that combines the individual interpolator builders.
+    For cleaner code, consider using the individual functions directly.
+
+    Args:
+        equilibrium_interpolator: The equilibrium interpolator.
+        radial_profiles: The radial profiles.
+
+    Returns:
+        A tuple of three functions:
+        - rho_interpolator: maps position to radial coordinate (rho)
+        - electron_density_profile_interpolator: maps rho to electron density
+        - electron_temperature_profile_interpolator: maps rho to electron temperature
+    """
+    rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
+    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
+    
+    return rho_interpolator, ne_profile_interpolator, Te_profile_interpolator

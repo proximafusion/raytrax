@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from raytrax.data import get_w7x_wout
+
 
 @dataclass
 class TestWout:
@@ -12,6 +14,8 @@ class TestWout:
     zmns: jax.Array
     xm: jax.Array
     xn: jax.Array
+    gmnc: jax.Array
+    gmns: jax.Array
     bsupumnc: jax.Array
     bsupvmnc: jax.Array
     xm_nyq: jax.Array
@@ -41,11 +45,19 @@ def torus_wout():
     bsupumnc = np.zeros((2, n_surfaces))
     bsupvmnc = np.zeros((2, n_surfaces))
     bsupvmnc[0] = 0.7
+    
+    # Add gmnc and gmns arrays for volume calculations
+    gmnc = np.zeros((2, n_surfaces))
+    gmnc[0] = np.linspace(0.1, 1.0, n_surfaces)  # g_{0,0} mode varies radially
+    gmns = np.zeros((2, n_surfaces))
+    
     return TestWout(
         rmnc=jnp.array(rmnc),
         zmns=jnp.array(zmns),
         xm=jnp.array(xm),
         xn=jnp.array(xn),
+        gmnc=jnp.array(gmnc),
+        gmns=jnp.array(gmns),
         bsupumnc=jnp.array(bsupumnc),
         bsupvmnc=jnp.array(bsupvmnc),
         xm_nyq=jnp.array(xm_nyq),
@@ -54,3 +66,9 @@ def torus_wout():
         nfp=1,
         lasym=False,
     )
+
+
+@pytest.fixture
+def w7x_wout():
+    """Fixture for the W7-X equilibrium."""
+    return get_w7x_wout()

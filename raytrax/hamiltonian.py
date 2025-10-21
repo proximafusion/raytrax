@@ -13,17 +13,23 @@ def hamiltonian(
     magnetic_field_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, ""]
+    ],
+    electron_density_profile_interpolator: Callable[
+        [Float[jax.Array, ""]], Float[jax.Array, ""]
     ],
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
 ) -> Float[jax.Array, ""]:
     """Compute the Hamiltonian."""
     magnetic_field = magnetic_field_interpolator(position)
-    electron_density_1e20_per_m3 = electron_density_interpolator(position)
+    rho = rho_interpolator(position)
+    electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
+    # FIXME add back cold tracing
+    return _hamiltonian_vacuum(refractive_index=refractive_index)
     return jax.lax.cond(
-        electron_density_1e20_per_m3 < 1e-6,
+        electron_density_1e20_per_m3 < 1e6,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
         ),
@@ -47,8 +53,11 @@ def hamiltonian_gradient_r(
     magnetic_field_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, ""]
+    ],
+    electron_density_profile_interpolator: Callable[
+        [Float[jax.Array, ""]], Float[jax.Array, ""]
     ],
 ) -> Float[jax.Array, "3"]:
     r"""Compute the gradient of the Hamiltonian with respect to the position vector.
@@ -60,7 +69,8 @@ def hamiltonian_gradient_r(
         ray_state.position,
         ray_state.refractive_index,
         magnetic_field_interpolator,
-        electron_density_interpolator,
+        rho_interpolator,
+        electron_density_profile_interpolator,
         ray_setting.frequency,
         ray_setting.mode,
     )
@@ -72,8 +82,11 @@ def hamiltonian_gradient_n(
     magnetic_field_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, "3"]
     ],
-    electron_density_interpolator: Callable[
+    rho_interpolator: Callable[
         [Float[jax.Array, "3"]], Float[jax.Array, ""]
+    ],
+    electron_density_profile_interpolator: Callable[
+        [Float[jax.Array, ""]], Float[jax.Array, ""]
     ],
 ) -> Float[jax.Array, "3"]:
     r"""Compute the gradient of the Hamiltonian with respect to the refractive index
@@ -86,7 +99,8 @@ def hamiltonian_gradient_n(
         ray_state.position,
         ray_state.refractive_index,
         magnetic_field_interpolator,
-        electron_density_interpolator,
+        rho_interpolator,
+        electron_density_profile_interpolator,
         ray_setting.frequency,
         ray_setting.mode,
     )

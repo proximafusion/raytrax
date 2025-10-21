@@ -217,3 +217,17 @@ def evaluate_magnetic_field_on_toroidal_grid(
         axis=-1,
     )
     return b_theta[..., jnp.newaxis] * dxyz_dtheta + b_phi[..., jnp.newaxis] * dxyz_dphi
+
+
+@jt.jaxtyped(typechecker=typechecker)
+def dvolume_drho(equilibrium: WoutLike, rho: jt.Float[jax.Array, "n_rho"]) -> jt.Float[jax.Array, "n_rho"]:
+    """Compute the derivative of the volume with respect to the effective radius."""
+    s_full = jnp.linspace(0, 1, equilibrium.ns)    
+    g00_coefficients = jnp.asarray(equilibrium.gmnc)[0:1, :]  # Shape: (1, ns)
+    g00_interpolated = interpolate_coefficients_radially(
+        fourier_coefficients=g00_coefficients,
+        normalized_toroidal_flux_in=s_full,
+        normalized_effective_radius_out=rho,
+    )
+    g00 = g00_interpolated[0, :]
+    return (2 * jnp.pi)**2 * jnp.abs(g00)
