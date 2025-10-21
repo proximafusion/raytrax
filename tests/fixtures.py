@@ -14,6 +14,8 @@ class TestWout:
     zmns: jax.Array
     xm: jax.Array
     xn: jax.Array
+    gmnc: jax.Array
+    gmns: jax.Array
     bsupumnc: jax.Array
     bsupvmnc: jax.Array
     xm_nyq: jax.Array
@@ -43,11 +45,19 @@ def torus_wout():
     bsupumnc = np.zeros((2, n_surfaces))
     bsupvmnc = np.zeros((2, n_surfaces))
     bsupvmnc[0] = 0.7
+    
+    # Add gmnc and gmns arrays for volume calculations
+    gmnc = np.zeros((2, n_surfaces))
+    gmnc[0] = np.linspace(0.1, 1.0, n_surfaces)  # g_{0,0} mode varies radially
+    gmns = np.zeros((2, n_surfaces))
+    
     return TestWout(
         rmnc=jnp.array(rmnc),
         zmns=jnp.array(zmns),
         xm=jnp.array(xm),
         xn=jnp.array(xn),
+        gmnc=jnp.array(gmnc),
+        gmns=jnp.array(gmns),
         bsupumnc=jnp.array(bsupumnc),
         bsupvmnc=jnp.array(bsupvmnc),
         xm_nyq=jnp.array(xm_nyq),
