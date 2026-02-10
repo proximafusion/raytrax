@@ -22,6 +22,78 @@ from .fourier import (
 from .types import WoutLike, EquilibriumInterpolator, RadialProfiles
 
 
+def _map_to_fundamental_domain(
+    phi: jt.Float[jax.Array, ""],
+    z: jt.Float[jax.Array, ""],
+    nfp: int,
+) -> tuple[
+    jt.Float[jax.Array, ""],
+    jt.Float[jax.Array, ""],
+    jt.Bool[jax.Array, ""],
+]:
+    """Map toroidal angle and z to the fundamental domain [0, π/nfp] using stellarator symmetry.
+
+    For points in the second half of a field period (phi_mod > π/nfp), the stellarator
+    symmetry maps (R, phi, Z) to (R, phi_mapped, -Z), so z must also be reflected.
+
+    Args:
+        phi: Toroidal angle in radians (can be any value)
+        z: Cylindrical z coordinate
+        nfp: Number of field periods
+
+    Returns:
+        A tuple of (phi_mapped, z_query, in_second_half) where phi_mapped is in [0, π/nfp],
+        z_query is the z to use for the grid lookup, and in_second_half indicates whether
+        the original phi was in the second half of a field period.
+    """
+    period = 2.0 * jnp.pi / nfp
+    half_period = jnp.pi / nfp
+    phi_mod = phi % period
+    in_second_half = phi_mod > half_period
+    phi_mapped = jnp.where(in_second_half, period - phi_mod, phi_mod)
+    z_query = jnp.where(in_second_half, -z, z)
+    return phi_mapped, z_query, in_second_half
+
+
+def _apply_B_stellarator_symmetry(
+    B_grid: jt.Float[jax.Array, "3"],
+    phi_mapped: jt.Float[jax.Array, ""],
+    phi: jt.Float[jax.Array, ""],
+    in_second_half: jt.Bool[jax.Array, ""],
+) -> jt.Float[jax.Array, "3"]:
+    """Apply stellarator symmetry transformation to a Cartesian B field vector.
+
+    When phi is in the second half of a field period, the grid was queried at the
+    mirror point (phi_mapped, -z). This function applies the correct physical
+    transformation to recover B at the actual query point (phi, z).
+
+    Under stellarator symmetry, B_R is odd (changes sign) while B_phi and B_Z
+    are even (unchanged) when reflecting across the period boundary.
+
+    Args:
+        B_grid: Cartesian B vector from the grid at the mirror point
+        phi_mapped: The mapped phi used for the grid lookup
+        phi: The actual toroidal angle of the query point
+        in_second_half: Whether the query phi is in the second half of a field period
+
+    Returns:
+        Cartesian B vector at the actual query position
+    """
+    cp_m = jnp.cos(phi_mapped)
+    sp_m = jnp.sin(phi_mapped)
+    BR_m = B_grid[0] * cp_m + B_grid[1] * sp_m
+    Bphi_m = -B_grid[0] * sp_m + B_grid[1] * cp_m
+    BZ_m = B_grid[2]
+    # B_R is odd under the symmetry (changes sign), B_phi and B_Z are even
+    sign = jnp.where(in_second_half, -1.0, 1.0)
+    BR_q = sign * BR_m
+    cp_q = jnp.cos(phi)
+    sp_q = jnp.sin(phi)
+    return jnp.stack(
+        [BR_q * cp_q - Bphi_m * sp_q, BR_q * sp_q + Bphi_m * cp_q, BZ_m]
+    )
+
+
 @jt.jaxtyped(typechecker=typechecker)
 def interpolate_toroidal_to_cylindrical_grid(
     rphiz_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi rphiz=3"],
@@ -83,9 +155,11 @@ def cylindrical_grid_for_equilibrium(
             "Non stellarator symmetric equilibria are not supported yet."
         )
     phi_max = 2 * jnp.pi / equilibrium.nfp / 2
+    # Extend grid to rho_max = 1.2 to allow extrapolation beyond LCMS
+    rho_max = 1.2
     rho_theta_phi = jnp.stack(
         jnp.meshgrid(
-            jnp.linspace(0, 1, n_rho),
+            jnp.linspace(0, rho_max, n_rho),
             jnp.linspace(0, 2 * jnp.pi, n_theta),
             jnp.linspace(0, phi_max, n_phi),
             indexing="ij",
@@ -135,13 +209,20 @@ def build_magnetic_field_interpolator(
     equilibrium_interpolator: EquilibriumInterpolator,
 ) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]]:
     """Build a magnetic field interpolator from the equilibrium interpolator."""
+    equilibrium = equilibrium_interpolator.equilibrium
+    if equilibrium.lasym:
+        raise NotImplementedError(
+            "Non stellarator-symmetric equilibria not yet supported"
+        )
+
     Bxyz = equilibrium_interpolator.magnetic_field
     rphiz = equilibrium_interpolator.rphiz
+    nfp = equilibrium.nfp
+
     interpolator = interpax.Interpolator3D(
         x=rphiz[:, 0, 0, 0],
         y=rphiz[0, :, 0, 1],
         z=rphiz[0, 0, :, 2],
-        # FIXME not a reasonable value
         f=jnp.nan_to_num(Bxyz, nan=0.0),
         method="linear",
         extrap=0.0,
@@ -150,13 +231,12 @@ def build_magnetic_field_interpolator(
     def interpolator_cartesian(
         position: jt.Float[jax.Array, "3"],
     ) -> jt.Float[jax.Array, "3"]:
-        # TODO handle symmetries
-        # TODO handle out of bounds
-        return interpolator(
-            jnp.sqrt(position[0] ** 2 + position[1] ** 2),
-            jnp.arctan2(position[1], position[0]),
-            position[2],
-        )
+        r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
+        phi = jnp.arctan2(position[1], position[0])
+        z = position[2]
+        phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
+        B_grid = interpolator(r, phi_mapped, z_query)
+        return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
 
     return interpolator_cartesian
 
@@ -172,8 +252,15 @@ def build_rho_interpolator(
     Returns:
         A function that maps position to radial coordinate (rho).
     """
+    equilibrium = equilibrium_interpolator.equilibrium
+    if equilibrium.lasym:
+        raise NotImplementedError(
+            "Non stellarator-symmetric equilibria not yet supported"
+        )
+
     rho = equilibrium_interpolator.rho
     rphiz = equilibrium_interpolator.rphiz
+    nfp = equilibrium.nfp
 
     rho_interpolator = interpax.Interpolator3D(
         x=rphiz[:, 0, 0, 0],
@@ -181,19 +268,17 @@ def build_rho_interpolator(
         z=rphiz[0, 0, :, 2],
         f=jnp.nan_to_num(rho, nan=1.1),
         method="linear",
-        # When outside of the grid, return a value greater than 1
         extrap=1.1,
     )
 
     def rho_interpolator_cartesian(
         position: jt.Float[jax.Array, "3"],
     ) -> jt.Float[jax.Array, ""]:
-        # TODO handle symmetries
-        return rho_interpolator(
-            jnp.sqrt(position[0] ** 2 + position[1] ** 2),
-            jnp.arctan2(position[1], position[0]),
-            position[2],
-        )
+        r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
+        phi = jnp.arctan2(position[1], position[0])
+        z = position[2]
+        phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
+        return rho_interpolator(r, phi_mapped, z_query)
 
     return rho_interpolator_cartesian
 
@@ -259,7 +344,7 @@ def build_radial_interpolators(
     Callable[[jt.Float[jax.Array, ""]], jt.Float[jax.Array, ""]],
 ]:
     """Build radial interpolators for the given equilibrium and radial profiles.
-    
+
     This is a convenience function that combines the individual interpolator builders.
     For cleaner code, consider using the individual functions directly.
 
@@ -274,7 +359,11 @@ def build_radial_interpolators(
         - electron_temperature_profile_interpolator: maps rho to electron temperature
     """
     rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
-    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
-    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
-    
+    ne_profile_interpolator = build_electron_density_profile_interpolator(
+        radial_profiles
+    )
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(
+        radial_profiles
+    )
+
     return rho_interpolator, ne_profile_interpolator, Te_profile_interpolator

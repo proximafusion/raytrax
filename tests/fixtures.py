@@ -1,9 +1,12 @@
 from dataclasses import dataclass
+import os
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from vmecpp import VmecWOut
 
 from raytrax.data import get_w7x_wout
 
@@ -72,3 +75,30 @@ def torus_wout():
 def w7x_wout():
     """Fixture for the W7-X equilibrium."""
     return get_w7x_wout()
+
+
+@pytest.fixture
+def w7x_travis_wout():
+    """Fixture for the W7-X equilibrium from TRAVIS NetCDF file.
+
+    This loads the exact same equilibrium file that TRAVIS uses, allowing
+    direct comparison between TRAVIS and raytrax calculations.
+
+    Set the TRAVIS_W7X_WOUT environment variable to point to the wout file:
+        export TRAVIS_W7X_WOUT=/path/to/wout-w7x-hm13.nc
+
+    Raises:
+        pytest.skip: If TRAVIS_W7X_WOUT is not set or file doesn't exist
+    """
+    wout_path_str = os.environ.get("TRAVIS_W7X_WOUT")
+    if not wout_path_str:
+        pytest.skip(
+            "TRAVIS_W7X_WOUT environment variable not set. "
+            "Set it to the path of the TRAVIS W7-X wout file for integration tests."
+        )
+
+    wout_path = Path(wout_path_str).expanduser()
+    if not wout_path.exists():
+        pytest.skip(f"TRAVIS W7-X equilibrium file not found at {wout_path}")
+
+    return VmecWOut.from_wout_file(str(wout_path))

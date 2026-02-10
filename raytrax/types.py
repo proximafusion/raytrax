@@ -69,6 +69,9 @@ class BeamProfile:
     magnetic_field: jt.Float[jax.Array, "npoints 3"]
     """The magnetic field vector along the beam in T."""
     
+    normalized_effective_radius: jt.Float[jax.Array, "npoints"]
+    """The normalized effective minor radius (rho) along the beam."""
+    
     linear_power_density: jt.Float[jax.Array, "npoints"]
     """The linear power density along the beam."""
 

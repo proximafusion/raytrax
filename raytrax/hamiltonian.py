@@ -26,10 +26,8 @@ def hamiltonian(
     magnetic_field = magnetic_field_interpolator(position)
     rho = rho_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
-    # FIXME add back cold tracing
-    return _hamiltonian_vacuum(refractive_index=refractive_index)
     return jax.lax.cond(
-        electron_density_1e20_per_m3 < 1e6,
+        electron_density_1e20_per_m3 < 1e-6,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
         ),
@@ -43,11 +41,10 @@ def hamiltonian(
     )
 
 
-_hamiltonian_gradient_r = jax.grad(hamiltonian, argnums=0)
-_hamiltonian_gradient_n = jax.grad(hamiltonian, argnums=1)
+_hamiltonian_gradients_rn = jax.grad(hamiltonian, argnums=(0, 1))
 
 
-def hamiltonian_gradient_r(
+def hamiltonian_gradients(
     ray_state: ray.RayState,
     ray_setting: ray.RaySetting,
     magnetic_field_interpolator: Callable[
@@ -59,43 +56,17 @@ def hamiltonian_gradient_r(
     electron_density_profile_interpolator: Callable[
         [Float[jax.Array, ""]], Float[jax.Array, ""]
     ],
-) -> Float[jax.Array, "3"]:
-    r"""Compute the gradient of the Hamiltonian with respect to the position vector.
+) -> tuple[Float[jax.Array, "3"], Float[jax.Array, "3"]]:
+    r"""Compute both Hamiltonian gradients in a single backward pass.
 
-    .. math::
-        \frac{\partial \mathcal{H}}{\partial \mathbf{r}}
+    Returns (∂H/∂r, ∂H/∂N) from one shared forward+backward pass through the
+    Hamiltonian, halving the number of B-interpolator evaluations compared to
+    computing each gradient separately.
+
+    Returns:
+        Tuple of (grad_r, grad_n) where grad_r = ∂H/∂r and grad_n = ∂H/∂N.
     """
-    return _hamiltonian_gradient_r(
-        ray_state.position,
-        ray_state.refractive_index,
-        magnetic_field_interpolator,
-        rho_interpolator,
-        electron_density_profile_interpolator,
-        ray_setting.frequency,
-        ray_setting.mode,
-    )
-
-
-def hamiltonian_gradient_n(
-    ray_state: ray.RayState,
-    ray_setting: ray.RaySetting,
-    magnetic_field_interpolator: Callable[
-        [Float[jax.Array, "3"]], Float[jax.Array, "3"]
-    ],
-    rho_interpolator: Callable[
-        [Float[jax.Array, "3"]], Float[jax.Array, ""]
-    ],
-    electron_density_profile_interpolator: Callable[
-        [Float[jax.Array, ""]], Float[jax.Array, ""]
-    ],
-) -> Float[jax.Array, "3"]:
-    r"""Compute the gradient of the Hamiltonian with respect to the refractive index
-    vector.
-
-    .. math::
-        \frac{\partial \mathcal{H}}{\partial \mathbf{N}}
-    """
-    return _hamiltonian_gradient_n(
+    return _hamiltonian_gradients_rn(
         ray_state.position,
         ray_state.refractive_index,
         magnetic_field_interpolator,

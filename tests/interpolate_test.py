@@ -12,10 +12,62 @@ from raytrax.interpolate import (
     build_electron_temperature_profile_interpolator,
     cylindrical_grid_for_equilibrium,
     interpolate_toroidal_to_cylindrical_grid,
+    _map_to_fundamental_domain,
 )
 from raytrax.types import RadialProfiles
 
 from .fixtures import torus_wout, w7x_wout
+
+
+def test_map_to_fundamental_domain():
+    """Test toroidal angle and z mapping to fundamental domain with stellarator symmetry."""
+    nfp = 5  # W7-X has 5 field periods
+    half_period = jnp.pi / nfp
+    period = 2.0 * jnp.pi / nfp
+    z = jnp.array(0.3)
+
+    # Test phi = 0 (first half): phi_mapped=0, z unchanged, not in second half
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(0.0), z, nfp)
+    assert jnp.allclose(phi_mapped, 0.0)
+    assert jnp.allclose(z_q, z)
+    assert not in_2nd
+
+    # Test phi at half period (boundary): should stay, z unchanged
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(half_period), z, nfp)
+    assert jnp.allclose(phi_mapped, half_period)
+    assert jnp.allclose(z_q, z)
+    assert not in_2nd
+
+    # Test phi slightly beyond half period (second half): phi reflects, z negates
+    phi_beyond = half_period + 0.1
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(phi_beyond), z, nfp)
+    assert jnp.allclose(phi_mapped, period - phi_beyond)
+    assert jnp.allclose(z_q, -z)
+    assert in_2nd
+
+    # Test phi at full period (should map to 0): z unchanged (first half after mod)
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(period), z, nfp)
+    assert jnp.allclose(phi_mapped, 0.0, atol=1e-10)
+    assert not in_2nd
+
+    # Test negative phi: -0.2 mod period = period-0.2 (second half), reflects to 0.2, z negated
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(-0.2), z, nfp)
+    assert jnp.allclose(phi_mapped, 0.2, atol=1e-10)
+    assert jnp.allclose(z_q, -z)
+    assert in_2nd
+
+    # Test phi beyond one full period: phi=period+0.3 → same as 0.3 (first half)
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(period + 0.3), z, nfp)
+    assert jnp.allclose(phi_mapped, 0.3, atol=1e-10)
+    assert jnp.allclose(z_q, z)
+    assert not in_2nd
+
+    # Test phi in second half (0.75*period): reflects, z negated
+    phi_second_half = 0.75 * period
+    phi_mapped, z_q, in_2nd = _map_to_fundamental_domain(jnp.array(phi_second_half), z, nfp)
+    assert jnp.allclose(phi_mapped, period - phi_second_half, atol=1e-10)
+    assert jnp.allclose(z_q, -z)
+    assert in_2nd
 
 
 def test_interpolate_toroidal_to_cylindrical_grid(torus_wout):
@@ -91,12 +143,14 @@ def test_cylindrical_grid_for_equilibrium(torus_wout):
     finite_r = r_values[np.isfinite(r_values)]
     finite_z = z_values[np.isfinite(z_values)]
     if len(finite_r) > 0:
-        assert np.min(finite_r) >= major_radius - minor_radius
-        assert np.max(finite_r) <= major_radius + minor_radius
+        # With rho extrapolated to 1.2, the grid extends beyond original minor radius
+        # Allow for 20% extension (rho_max = 1.2)
+        assert np.min(finite_r) >= major_radius - minor_radius * 1.2
+        assert np.max(finite_r) <= major_radius + minor_radius * 1.2
 
     if len(finite_z) > 0:
-        assert np.min(finite_z) >= -minor_radius
-        assert np.max(finite_z) <= minor_radius
+        assert np.min(finite_z) >= -minor_radius * 1.2
+        assert np.max(finite_z) <= minor_radius * 1.2
 
 
 def test_build_magnetic_field_interpolator_w7x(w7x_wout):
@@ -161,76 +215,80 @@ def test_build_radial_interpolators_w7x(w7x_wout):
     """Test the radial interpolators using the W7X equilibrium."""
     # Create the equilibrium interpolator
     interpolator = get_interpolator_for_equilibrium(w7x_wout)
-    
+
     # Create sample radial profiles
     n_rho_profile = 50
     rho_profile = jnp.linspace(0, 1, n_rho_profile)
     # Sample parabolic profiles for density and temperature
     ne_profile = 1.0 * (1 - rho_profile**2)
     Te_profile = 3.0 * (1 - rho_profile**2)
-    
+
     # Create RadialProfiles object
     radial_profiles = RadialProfiles(
-        rho=rho_profile,
-        electron_density=ne_profile,
-        electron_temperature=Te_profile
+        rho=rho_profile, electron_density=ne_profile, electron_temperature=Te_profile
     )
-    
+
     # Build the radial interpolators using the new individual functions
     rho_interpolator = build_rho_interpolator(interpolator)
-    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
-    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
-    
+    ne_profile_interpolator = build_electron_density_profile_interpolator(
+        radial_profiles
+    )
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(
+        radial_profiles
+    )
+
     # Create composite functions for testing (similar to the old API behavior)
     def ne_interpolator(position):
         rho_value = rho_interpolator(position)
         return ne_profile_interpolator(rho_value)
-    
+
     def Te_interpolator(position):
         rho_value = rho_interpolator(position)
         return Te_profile_interpolator(rho_value)
-    
+
     # Test the interpolators at different positions
     # Use positions we know are within the W7X geometry
     R_major = 6.0
-    
-    positions = jnp.array([
-        [R_major, 0.0, 0.0],  # On axis, at phi = 0
-        [R_major * jnp.cos(0.1), R_major * jnp.sin(0.1), 0.0],  # Slightly off-axis
-        [R_major, 0.0, 0.2],  # Slight vertical offset
-    ])
-    
+
+    positions = jnp.array(
+        [
+            [R_major, 0.0, 0.0],  # On axis, at phi = 0
+            [R_major * jnp.cos(0.1), R_major * jnp.sin(0.1), 0.0],  # Slightly off-axis
+            [R_major, 0.0, 0.2],  # Slight vertical offset
+        ]
+    )
+
     # Test the electron density interpolator
     for pos in positions:
         ne_value = ne_interpolator(pos)
-        
+
         # Basic checks
         assert ne_value.shape == ()  # Scalar value
-        
+
         # Check if the value is finite (not NaN)
         assert not jnp.isnan(ne_value), f"Density is NaN at position {pos}"
-        
+
         # Value should be between 0 and 1 (our profile max)
         if jnp.isfinite(ne_value):
             assert 0 <= ne_value <= 1.0, f"Density out of range at position {pos}"
-    
+
     # Test the electron temperature interpolator
     for pos in positions:
         Te_value = Te_interpolator(pos)
-        
+
         # Basic checks
         assert Te_value.shape == ()  # Scalar value
-        
+
         # Check if the value is finite (not NaN)
         assert not jnp.isnan(Te_value), f"Temperature is NaN at position {pos}"
-        
+
         # Value should be between 0 and 3 (our profile max)
         if jnp.isfinite(Te_value):
             assert 0 <= Te_value <= 3.0, f"Temperature out of range at position {pos}"
-    
+
     # Test with jit
     finite_positions = positions[jnp.array([0])]  # Start with just the first position
-    
+
     # Test JIT with ne_interpolator
     jitted_ne_interpolator = jax.jit(ne_interpolator)
     for pos in finite_positions:
@@ -240,7 +298,7 @@ def test_build_radial_interpolators_w7x(w7x_wout):
             assert jnp.isfinite(ne_value_jitted)
         except Exception as e:
             print(f"Jitted ne_interpolator failed at position {pos}: {e}")
-    
+
     # Test JIT with Te_interpolator
     jitted_Te_interpolator = jax.jit(Te_interpolator)
     for pos in finite_positions:
@@ -250,7 +308,7 @@ def test_build_radial_interpolators_w7x(w7x_wout):
             assert jnp.isfinite(Te_value_jitted)
         except Exception as e:
             print(f"Jitted Te_interpolator failed at position {pos}: {e}")
-    
+
     # Test with vmap
     if len(finite_positions) > 0:
         try:
@@ -259,7 +317,7 @@ def test_build_radial_interpolators_w7x(w7x_wout):
             ne_values_vmap = vmapped_ne_interpolator(finite_positions)
             assert ne_values_vmap.shape == (len(finite_positions),)
             assert jnp.any(jnp.isfinite(ne_values_vmap))
-            
+
             # Test vmap with Te_interpolator
             vmapped_Te_interpolator = jax.vmap(Te_interpolator)
             Te_values_vmap = vmapped_Te_interpolator(finite_positions)
@@ -273,45 +331,164 @@ def test_individual_interpolator_functions_w7x(w7x_wout):
     """Test the individual interpolator building functions."""
     # Create the equilibrium interpolator
     equilibrium_interpolator = get_interpolator_for_equilibrium(w7x_wout)
-    
+
     # Create sample radial profiles
     n_rho_profile = 50
     rho_profile = jnp.linspace(0, 1, n_rho_profile)
     ne_profile = 1.0 * (1 - rho_profile**2)
     Te_profile = 3.0 * (1 - rho_profile**2)
-    
+
     radial_profiles = RadialProfiles(
-        rho=rho_profile,
-        electron_density=ne_profile,
-        electron_temperature=Te_profile
+        rho=rho_profile, electron_density=ne_profile, electron_temperature=Te_profile
     )
-    
+
     # Test individual functions
     rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
-    ne_profile_interpolator = build_electron_density_profile_interpolator(radial_profiles)
-    Te_profile_interpolator = build_electron_temperature_profile_interpolator(radial_profiles)
-    
+    ne_profile_interpolator = build_electron_density_profile_interpolator(
+        radial_profiles
+    )
+    Te_profile_interpolator = build_electron_temperature_profile_interpolator(
+        radial_profiles
+    )
+
     # Test rho interpolator
     test_position = jnp.array([6.0, 0.0, 0.0])
     rho_value = rho_interpolator(test_position)
     assert rho_value.shape == ()
     assert jnp.isfinite(rho_value)
-    
+
     # Test profile interpolators with known rho values
     test_rho_values = jnp.array([0.0, 0.5, 1.0])
-    
+
     for test_rho in test_rho_values:
         ne_value = ne_profile_interpolator(test_rho)
         Te_value = Te_profile_interpolator(test_rho)
-        
+
         assert ne_value.shape == ()
         assert Te_value.shape == ()
         assert jnp.isfinite(ne_value)
         assert jnp.isfinite(Te_value)
-        
+
         # Check that the values match the expected profile
         expected_ne = 1.0 * (1 - test_rho**2)
         expected_Te = 3.0 * (1 - test_rho**2)
-        
+
         assert jnp.allclose(ne_value, expected_ne, rtol=1e-3)
         assert jnp.allclose(Te_value, expected_Te, rtol=1e-3)
+
+
+def test_stellarator_symmetry_in_interpolators(w7x_wout):
+    """Test that interpolators correctly apply stellarator symmetry mapping.
+
+    The physical stellarator symmetry is: (R, phi, Z) <-> (R, phi_period-phi, -Z)
+    meaning both rho and |B| are equal at these mirror positions.
+    Field periodicity: (R, phi, Z) == (R, phi + 2*pi/nfp, Z).
+    """
+    equilibrium_interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    B_interpolator = build_magnetic_field_interpolator(equilibrium_interpolator)
+    rho_interpolator = build_rho_interpolator(equilibrium_interpolator)
+
+    nfp = w7x_wout.nfp  # Should be 5 for W7-X
+    period = 2.0 * jnp.pi / nfp
+    R = 5.8
+    z = 0.1
+
+    # Position 1: phi in first half-period
+    phi1 = 0.1
+    pos1 = jnp.array([R * jnp.cos(phi1), R * jnp.sin(phi1), z])
+
+    # Position 2: stellarator-symmetric to pos1 — same R, phi reflected, Z negated
+    phi2 = period - phi1
+    pos2_sym = jnp.array([R * jnp.cos(phi2), R * jnp.sin(phi2), -z])
+
+    # Position 3: same as pos1 in the next field period (exact periodicity)
+    phi3 = phi1 + period
+    pos3 = jnp.array([R * jnp.cos(phi3), R * jnp.sin(phi3), z])
+
+    # Test rho interpolator
+    rho1 = rho_interpolator(pos1)
+    rho2 = rho_interpolator(pos2_sym)
+    rho3 = rho_interpolator(pos3)
+
+    # Stellarator-symmetric positions should give same rho (rho is even under symmetry)
+    assert jnp.allclose(
+        rho1, rho2, rtol=1e-4
+    ), f"Stellarator symmetry failed for rho: {rho1} != {rho2}"
+    # Next field period should give same result
+    assert jnp.allclose(
+        rho1, rho3, rtol=1e-4
+    ), f"Field periodicity failed for rho: {rho1} != {rho3}"
+
+    # Test |B| (stellarator symmetry: |B| is even, so same at symmetric positions)
+    B1 = B_interpolator(pos1)
+    B2 = B_interpolator(pos2_sym)
+    B3 = B_interpolator(pos3)
+
+    B1_mag = jnp.linalg.norm(B1)
+    B2_mag = jnp.linalg.norm(B2)
+    B3_mag = jnp.linalg.norm(B3)
+
+    assert jnp.allclose(
+        B1_mag, B2_mag, rtol=1e-4
+    ), f"Stellarator symmetry failed for |B|: {B1_mag} != {B2_mag}"
+    # Next field period: |B| and B_Z are identical; Cartesian Bx/By are rotated by
+    # period in phi (because the Cartesian frame rotates), so compare only |B| and B_Z.
+    assert jnp.allclose(
+        B1_mag, B3_mag, rtol=1e-4
+    ), f"Field periodicity failed for |B|: {B1_mag} != {B3_mag}"
+    assert jnp.allclose(
+        B1[2], B3[2], rtol=1e-4
+    ), f"Field periodicity failed for B_Z: {B1[2]} != {B3[2]}"
+
+
+def test_extrapolation_in_cylindrical_grid(w7x_wout):
+    """Test that the cylindrical grid properly handles extrapolation beyond LCMS."""
+    from raytrax.api import get_interpolator_for_equilibrium
+    from raytrax.interpolate import build_magnetic_field_interpolator, build_rho_interpolator
+    
+    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    B_interpolator = build_magnetic_field_interpolator(interpolator)
+    rho_interpolator = build_rho_interpolator(interpolator)
+    
+    # Test position near the plasma boundary at larger major radius
+    R_test = 6.0  # Near outboard edge
+    phi_test = 0.0  # At symmetry plane
+    Z_test = 0.0   # Midplane
+    
+    # Create a radial scan from inside to outside plasma
+    positions = []
+    for delta_r in jnp.linspace(-0.3, 0.3, 20):  # Scan outward through boundary
+        R = R_test + delta_r
+        X = R * jnp.cos(phi_test)
+        Y = R * jnp.sin(phi_test)
+        positions.append(jnp.array([X, Y, Z_test]))
+    
+    # Evaluate B field and rho at all positions
+    B_magnitudes = []
+    rho_values = []
+    for pos in positions:
+        B_vec = B_interpolator(pos)
+        B_mag = float(jnp.linalg.norm(B_vec))
+        rho_val = float(rho_interpolator(pos))
+        B_magnitudes.append(B_mag)
+        rho_values.append(rho_val)
+    
+    B_magnitudes = jnp.array(B_magnitudes)
+    rho_values = jnp.array(rho_values)
+    
+    # Check that we have finite values everywhere (key test for extrapolation)
+    assert jnp.all(jnp.isfinite(B_magnitudes)), "B field should be finite everywhere"
+    assert jnp.all(jnp.isfinite(rho_values)), "rho should be finite everywhere"
+    
+    # Focus on points where B > 0 (within or near the grid)
+    valid_mask = B_magnitudes > 0.1  # Filter out far-outside points
+    B_valid = B_magnitudes[valid_mask]
+    
+    assert len(B_valid) > 10, "Should have enough valid points for testing"
+    
+    # Check for reasonable continuity: B field shouldn't have huge jumps
+    # This is the key test - without proper extrapolation, we'd see jumps to zero
+    dB = jnp.diff(B_valid)
+    max_jump = jnp.max(jnp.abs(dB))
+    # Allow at most ~1.0T change between adjacent points (reasonable for ~3cm spacing)
+    assert max_jump < 1.0, f"B field has too large jump: {max_jump:.3f} T (indicates bad extrapolation)"

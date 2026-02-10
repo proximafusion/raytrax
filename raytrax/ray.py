@@ -18,6 +18,7 @@ class RayState:
     optical_depth: jt.Float[jax.Array, ""]
     arc_length: jt.Float[jax.Array, ""]
 
+
 @dataclass(frozen=True)
 class RayQuantities:
     magnetic_field: jt.Float[jax.Array, "3"]
@@ -26,19 +27,6 @@ class RayQuantities:
     electron_temperature: jt.Float[jax.Array, ""]
     linear_power_density: jt.Float[jax.Array, ""]
     normalized_effective_radius: jt.Float[jax.Array, ""]
-
-@dataclass(frozen=True)
-class Term:
-    position: jt.Float[jax.Array, "3"]
-    refractive_index: jt.Float[jax.Array, "3"]
-    optical_depth: jt.Float[jax.Array, ""]
-
-    def __add__(self, other: "Term") -> "Term":
-        return Term(
-            position=self.position + other.position,
-            refractive_index=self.refractive_index + other.refractive_index,
-            optical_depth=self.optical_depth + other.optical_depth,
-        )
 
 
 jax.tree_util.register_pytree_node(

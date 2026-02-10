@@ -108,3 +108,50 @@ def test_dvolume_drho_w7x_integration(w7x_wout):
     assert jnp.isfinite(total_volume), "Total volume is not finite"
     
     assert total_volume > 0, "Total volume should be positive"
+
+
+def test_extrapolation_beyond_lcms(torus_wout):
+    """Test that extrapolation works correctly for rho > 1."""
+    # Test with rho values extending beyond LCMS
+    rho_theta_phi = jnp.stack(
+        jnp.meshgrid(
+            jnp.linspace(0, 1.2, 10),  # Extend to rho=1.2
+            jnp.linspace(0, 2 * jnp.pi, 6),
+            jnp.linspace(0, 2 * jnp.pi, 7),
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+    
+    # Test rphiz extrapolation
+    rphiz = evaluate_rphiz_on_toroidal_grid(torus_wout, rho_theta_phi)
+    assert rphiz.shape == (10, 6, 7, 3)
+    assert np.all(np.isfinite(rphiz)), "Extrapolated rphiz contains NaN or Inf"
+    
+    # Check that flux surfaces expand outward for rho > 1
+    # Compare rho=1.0 vs rho=1.2 at the same (theta, phi)
+    idx_rho_1_0 = 8  # rho ≈ 1.07
+    idx_rho_1_2 = 9  # rho = 1.2
+    r_at_1_0 = rphiz[idx_rho_1_0, :, :, 0]
+    r_at_1_2 = rphiz[idx_rho_1_2, :, :, 0]
+    z_at_1_0 = rphiz[idx_rho_1_0, :, :, 2]
+    z_at_1_2 = rphiz[idx_rho_1_2, :, :, 2]
+    
+    # Surfaces should expand: distance from axis should increase
+    # For a torus, axis is at (R0, Z0) = (2.0, 0.0)
+    dist_1_0 = jnp.sqrt((r_at_1_0 - 2.0)**2 + z_at_1_0**2)
+    dist_1_2 = jnp.sqrt((r_at_1_2 - 2.0)**2 + z_at_1_2**2)
+    assert jnp.all(dist_1_2 >= dist_1_0), "Flux surfaces should expand for rho > 1"
+    
+    # Test magnetic field extrapolation
+    bfield = evaluate_magnetic_field_on_toroidal_grid(torus_wout, rho_theta_phi)
+    assert bfield.shape == (10, 6, 7, 3)
+    assert np.all(np.isfinite(bfield)), "Extrapolated B field contains NaN or Inf"
+    
+    # Magnetic field should be continuous across rho=1 boundary
+    b_mag = jnp.linalg.norm(bfield, axis=-1)
+    # Compare rho just below 1.0 vs just above
+    idx_below = 7  # rho ≈ 0.93
+    idx_above = 9  # rho = 1.2
+    assert jnp.allclose(b_mag[idx_below], b_mag[idx_above], rtol=0.2), \
+        "B field should be continuous across LCMS"

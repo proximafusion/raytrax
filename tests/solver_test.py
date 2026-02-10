@@ -6,9 +6,11 @@ jax.config.update("jax_enable_x64", True)
 
 
 def test_y_to_state_roundtrip():
+    # Test with 7-component ODE state vector
     y = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
     state = solver._y_to_state(y, s=0.0)
-    assert jnp.allclose(y, solver._state_to_y(state))
+    y_reconstructed = solver._state_to_y(state)
+    assert jnp.allclose(y, y_reconstructed)
 
 
 def test_ray_tracing():
@@ -25,7 +27,7 @@ def test_ray_tracing():
 
     def magnetic_field_interpolator(position):
         return jnp.array([10.0, 0.0, 0.0])
-    
+
     def rho_interpolator(position):
         return jnp.array(0.5)
 
@@ -35,7 +37,7 @@ def test_ray_tracing():
     def electron_temperature_profile_interpolator(rho):
         return jnp.array(1.0)
 
-    solution = solver.solve(
+    ray_states, ray_quantities = solver.solve(
         state,
         setting,
         magnetic_field_interpolator,
@@ -43,10 +45,14 @@ def test_ray_tracing():
         electron_density_profile_interpolator,
         electron_temperature_profile_interpolator,
     )
-    print(solution)
+    print(f"Ray states: {len(ray_states)}")
+    print(f"Ray quantities: {len(ray_quantities)}")
+    assert len(ray_states) > 0
+    assert len(ray_quantities) == len(ray_states)
 
 
-def test_compute_additional_quantities():
+def test_quantities_computed_during_solve():
+    """Test that quantities are computed correctly during ODE solve (augmented state)."""
     # Set up initial conditions
     state = ray.RayState(
         position=jnp.array([0.0, 0.0, 0.0]),
@@ -63,7 +69,7 @@ def test_compute_additional_quantities():
     def magnetic_field_interpolator(position):
         # Return a 3D vector regardless of input shape
         return jnp.array([10.0, 0.0, 0.0])
-    
+
     def rho_interpolator(position):
         # Return a scalar
         return jnp.array(0.5)
@@ -76,8 +82,8 @@ def test_compute_additional_quantities():
         # Return a scalar
         return jnp.array(1.0)
 
-    # Solve ray equations to get ray states
-    ray_states = solver.solve(
+    # Solve ray equations - now returns both states and quantities
+    ray_states, ray_quantities = solver.solve(
         state,
         setting,
         magnetic_field_interpolator,
@@ -85,35 +91,14 @@ def test_compute_additional_quantities():
         electron_density_profile_interpolator,
         electron_temperature_profile_interpolator,
     )
-    
-    # Create a custom implementation of compute_additional_quantities without vmap
-    def custom_compute_quantities(ray_states):
-        result = []
-        for state in ray_states:
-            magnetic_field = magnetic_field_interpolator(state.position)
-            rho = rho_interpolator(state.position)
-            electron_density = electron_density_profile_interpolator(rho)
-            electron_temperature = electron_temperature_profile_interpolator(rho)
 
-            ray_quantities = ray.RayQuantities(
-                magnetic_field=magnetic_field,
-                absorption_coefficient=jnp.array(0.0),  # Placeholder
-                electron_density=electron_density,
-                electron_temperature=electron_temperature,
-                linear_power_density=jnp.array(0.0),  # Placeholder
-                normalized_effective_radius=rho,
-            )
-            result.append(ray_quantities)
-        return result
-    
-    # Test our custom implementation
-    quantities = custom_compute_quantities(ray_states)
-    
     # Check that we have the right number of quantities
-    assert len(quantities) == len(ray_states)
-    
+    assert len(ray_quantities) == len(ray_states)
+    assert len(ray_states) > 0
+
     # Check that the first quantity has the correct values
-    first_quantities = quantities[0]
+    first_quantities = ray_quantities[0]
     assert jnp.allclose(first_quantities.magnetic_field, jnp.array([10.0, 0.0, 0.0]))
     assert jnp.allclose(first_quantities.electron_density, jnp.array(0.1))
     assert jnp.allclose(first_quantities.electron_temperature, jnp.array(1.0))
+    assert jnp.allclose(first_quantities.normalized_effective_radius, jnp.array(0.5))

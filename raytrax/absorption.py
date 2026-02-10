@@ -114,8 +114,8 @@ def absorption_coefficient(
         polarization_vector=polarization_vector,
     )
     resonance_integral = 0.0
-    # TODO(dstraub): implement higher harmonics
-    for harmonic_index in range(1):
+    # TODO(dstraub): implement higher harmonics (currently n=1,2)
+    for harmonic_index in range(1, 3):
         resonance_integral += jax.lax.cond(
             # The resonance condition is given by
             # gamma = nY + n_para * u_para
@@ -134,7 +134,7 @@ def absorption_coefficient(
                 + (harmonic_index * cyclotron_frequency / frequency) ** 2
                 - 1
             )
-            <= 0,
+            < 0,
             lambda: 0.0,
             lambda: compute_resonance_integral(
                 harmonic_index=harmonic_index,
@@ -146,8 +146,31 @@ def absorption_coefficient(
                 thermal_velocity=thermal_velocity,
             ),
         )
-    prefactor = (2 * jnp.pi * frequency) / 8
-    return prefactor * resonance_integral / jnp.linalg.norm(power_flux_vector)
+    # Absorption coefficient from Fidone et al., Phys. Fluids 1988:
+    #   alpha = (omega/8) * Xp * I / |F|
+    # where F is the power flux and I is the resonance integral.
+    # Using the power flux normalization F = 0.5 * dH/dN:
+    #   alpha = omega*pi*Xp/c * I / |F|
+    # After accounting for Maxwellian distribution normalization:
+    #   alpha = -omega*Xp*sqrt(pi*mu/2)/c * resonance_integral / |F|
+    # where resonance_integral < 0 for absorption, giving alpha > 0.
+    from scipy.constants import c as speed_of_light
+
+    omega = 2 * jnp.pi * frequency
+    Xp = (plasma_frequency / frequency) ** 2
+    mu = 2 / thermal_velocity**2
+    prefactor = -omega * Xp * jnp.sqrt(jnp.pi * mu / 2) / speed_of_light
+
+    # Avoid division by zero or NaN when power flux is very small or invalid (near cutoff)
+    power_flux_magnitude = jnp.linalg.norm(power_flux_vector)
+    power_flux_threshold = 1e-10
+    # Check for both small magnitude and NaN/Inf
+    is_valid = (power_flux_magnitude >= power_flux_threshold) & jnp.isfinite(power_flux_magnitude)
+    return jax.lax.cond(
+        is_valid,
+        lambda: prefactor * resonance_integral / power_flux_magnitude,
+        lambda: 0.0,
+    )
 
 
 def compute_resonance_integral(
@@ -292,8 +315,10 @@ def _resonance_integrand_full(
     df_dgamma = distribution_function.maxwell_juettner_distribution_dgamma(
         lorentz_factor, thermal_velocity=thermal_velocity
     )
-    df_dupara = 0.0
-    return Dql * (df_dgamma + refractive_index_para * df_dupara)
+    # Fidone operator: Lf = df/dw + N_par * df/dq_par|_w
+    # For an isotropic Maxwellian f(gamma), df/dq_par|_w = 0 (energy is constant),
+    # so Lf = df/dgamma.
+    return Dql * df_dgamma
 
 
 def quasilinear_diffusion_coefficient(
@@ -338,18 +363,26 @@ def quasilinear_diffusion_coefficient(
         refractive_index_perp * perpendicular_momentum * frequency / cyclotron_frequency
     )
 
-    Jn = bessel.jv_jax(harmonic_index, kperp_rho)
-    dJn = bessel.djv_jax(harmonic_index, kperp_rho)
+    # Safety check for small kperp_rho to avoid division by zero
+    # For small x, Jn(x)/x = (x/2)^(n-1) / (2 * n!) for n >= 1
+    kperp_rho_threshold = 1e-10
+    kperp_rho_safe = jnp.where(kperp_rho < kperp_rho_threshold, kperp_rho_threshold, kperp_rho)
 
-    An1 = harmonic_index * Jn / kperp_rho
+    Jn = bessel.jv_jax(harmonic_index, kperp_rho_safe)
+    dJn = bessel.djv_jax(harmonic_index, kperp_rho_safe)
+
+    An1 = harmonic_index * Jn / kperp_rho_safe
     An2 = 1j * dJn
-    An3 = (parallel_momentum / perpendicular_momentum) * Jn
+    # Avoid division by zero when perpendicular_momentum is very small
+    perp_safe = jnp.where(perpendicular_momentum < kperp_rho_threshold, 1.0, perpendicular_momentum)
+    An3 = (parallel_momentum / perp_safe) * Jn
+    An3 = jnp.where(perpendicular_momentum < kperp_rho_threshold, 0.0, An3)
 
     An = jnp.array(
         [
             [An1 * An1, An1 * An2, An1 * An3],
             [-An1 * An2, -An2 * An2, -An2 * An3],
-            [An1 * An3, -An2 * An3, An3 * An3],
+            [An1 * An3, An2 * An3, An3 * An3],
         ],
         dtype=jnp.complex128,
     )
