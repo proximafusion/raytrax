@@ -1,0 +1,20 @@
+[project]
+site_name = "Raytrax"
+site_url = "https://proximafusion.github.io/raytrax/"
+docs_dir = "docs"
+
+[project.theme]
+name = "zensical"
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+show_source = true
+
+[[project.nav]]
+Home = "index.md"
+
+[[project.nav]]
+"Reference" = "api.md"

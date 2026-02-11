@@ -31,6 +31,10 @@ test = [
   "mypy",
   "pre-commit",
 ]
+docs = [
+  "zensical",
+  "mkdocstrings-python",
+]
 
 [project.urls]
 Homepage = "https://github.com/proximafusion/raytrax"
