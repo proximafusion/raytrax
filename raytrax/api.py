@@ -2,6 +2,7 @@
 
 import jax.numpy as jnp
 
+from .fourier import dvolume_drho
 from .interpolate import (
     build_magnetic_field_interpolator,
     build_rho_interpolator,
@@ -14,7 +15,7 @@ from .solver import solve
 from .type_conversion import ray_states_to_beam_profile, ray_states_to_radial_profile
 from .types import (
     Beam,
-    EquilibriumInterpolator,
+    MagneticConfiguration,
     RadialProfiles,
     TracingResult,
     WoutLike,
@@ -30,7 +31,7 @@ _interpolator_cache: dict[tuple[int, int], tuple] = {}
 def get_interpolator_for_equilibrium(
     equilibrium: WoutLike,
     magnetic_field_scale: float = 1.0,
-) -> EquilibriumInterpolator:
+) -> MagneticConfiguration:
     """Generate interpolators for the given MHD equilibrium.
 
     Args:
@@ -40,7 +41,7 @@ def get_interpolator_for_equilibrium(
             ``B0_normalization_type at angle on magn.axis`` setting.
 
     Returns:
-        An EquilibriumInterpolator object containing interpolation data.
+        A MagneticConfiguration object containing interpolation data.
     """
     # TODO add settings for grid resolution
     interpolated_array = cylindrical_grid_for_equilibrium(
@@ -49,13 +50,24 @@ def get_interpolator_for_equilibrium(
     rphiz = interpolated_array[..., :3]
     rho = interpolated_array[..., 3]
     magnetic_field = interpolated_array[..., 4:] * magnetic_field_scale
-    return EquilibriumInterpolator(
-        rphiz=rphiz, magnetic_field=magnetic_field, rho=rho, equilibrium=equilibrium
+
+    # Compute volume derivative on 1D radial grid
+    rho_1d = jnp.linspace(0, 1, 200)
+    dv_drho = dvolume_drho(equilibrium, rho_1d)
+
+    return MagneticConfiguration(
+        rphiz=rphiz,
+        magnetic_field=magnetic_field,
+        rho=rho,
+        nfp=equilibrium.nfp,
+        stellarator_symmetric=not equilibrium.lasym,
+        rho_1d=rho_1d,
+        dvolume_drho=dv_drho,
     )
 
 
 def trace(
-    equilibrium_interpolator: EquilibriumInterpolator,
+    equilibrium_interpolator: MagneticConfiguration,
     radial_profiles: RadialProfiles,
     beam: Beam,
 ) -> TracingResult:
@@ -103,6 +115,9 @@ def trace(
     )
     beam_profile = ray_states_to_beam_profile(ray_states, additional_quantities)
     radial_profile = ray_states_to_radial_profile(
-        ray_states, additional_quantities, equilibrium_interpolator.equilibrium
+        ray_states,
+        additional_quantities,
+        equilibrium_interpolator.rho_1d,
+        equilibrium_interpolator.dvolume_drho,
     )
     return TracingResult(beam_profile=beam_profile, radial_profile=radial_profile)

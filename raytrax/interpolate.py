@@ -19,7 +19,7 @@ from .fourier import (
     evaluate_magnetic_field_on_toroidal_grid,
     evaluate_rphiz_on_toroidal_grid,
 )
-from .types import WoutLike, EquilibriumInterpolator, RadialProfiles
+from .types import WoutLike, MagneticConfiguration, RadialProfiles
 
 
 def _map_to_fundamental_domain(
@@ -204,18 +204,17 @@ def cylindrical_grid_for_equilibrium(
 
 
 def build_magnetic_field_interpolator(
-    equilibrium_interpolator: EquilibriumInterpolator,
+    equilibrium_interpolator: MagneticConfiguration,
 ) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, "3"]]:
     """Build a magnetic field interpolator from the equilibrium interpolator."""
-    equilibrium = equilibrium_interpolator.equilibrium
-    if equilibrium.lasym:
+    if not equilibrium_interpolator.stellarator_symmetric:
         raise NotImplementedError(
             "Non stellarator-symmetric equilibria not yet supported"
         )
 
     Bxyz = equilibrium_interpolator.magnetic_field
     rphiz = equilibrium_interpolator.rphiz
-    nfp = equilibrium.nfp
+    nfp = equilibrium_interpolator.nfp
 
     interpolator = interpax.Interpolator3D(
         x=rphiz[:, 0, 0, 0],
@@ -240,7 +239,7 @@ def build_magnetic_field_interpolator(
 
 
 def build_rho_interpolator(
-    equilibrium_interpolator: EquilibriumInterpolator,
+    equilibrium_interpolator: MagneticConfiguration,
 ) -> Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]]:
     """Build rho interpolator for the given equilibrium.
 
@@ -250,15 +249,14 @@ def build_rho_interpolator(
     Returns:
         A function that maps position to radial coordinate (rho).
     """
-    equilibrium = equilibrium_interpolator.equilibrium
-    if equilibrium.lasym:
+    if not equilibrium_interpolator.stellarator_symmetric:
         raise NotImplementedError(
             "Non stellarator-symmetric equilibria not yet supported"
         )
 
     rho = equilibrium_interpolator.rho
     rphiz = equilibrium_interpolator.rphiz
-    nfp = equilibrium.nfp
+    nfp = equilibrium_interpolator.nfp
 
     rho_interpolator = interpax.Interpolator3D(
         x=rphiz[:, 0, 0, 0],
@@ -334,7 +332,7 @@ def build_electron_temperature_profile_interpolator(
 
 
 def build_radial_interpolators(
-    equilibrium_interpolator: EquilibriumInterpolator,
+    equilibrium_interpolator: MagneticConfiguration,
     radial_profiles: RadialProfiles,
 ) -> tuple[
     Callable[[jt.Float[jax.Array, "3"]], jt.Float[jax.Array, ""]],
@@ -347,7 +345,7 @@ def build_radial_interpolators(
     For cleaner code, consider using the individual functions directly.
 
     Args:
-        equilibrium_interpolator: The equilibrium interpolator.
+        equilibrium_interpolator: The configuration grid.
         radial_profiles: The radial profiles.
 
     Returns:

@@ -99,8 +99,8 @@ class TracingResult:
 
 
 @dataclass
-class EquilibriumInterpolator:
-    """Dataclass representing interpolation data for an MHD equilibrium."""
+class MagneticConfiguration:
+    """Magnetic configuration and geometry on a cylindrical grid."""
 
     rphiz: jt.Float[jax.Array, "npoints 3"]
     """The (r, phi, z) coordinates of the points on the interpolation grid."""
@@ -111,8 +111,17 @@ class EquilibriumInterpolator:
     rho: jt.Float[jax.Array, "npoints"]
     """The normalized effective minor radius at each point on the interpolation grid."""
 
-    equilibrium: WoutLike
-    """The original equilibrium data."""
+    nfp: int
+    """Number of field periods (toroidal periodicity)."""
+
+    stellarator_symmetric: bool
+    """Whether the configuration has stellarator symmetry."""
+
+    rho_1d: jt.Float[jax.Array, "nrho_1d"]
+    """1D radial grid for volume derivative."""
+
+    dvolume_drho: jt.Float[jax.Array, "nrho_1d"]
+    """Volume derivative dV/drho on the 1D radial grid."""
 
 
 @dataclass

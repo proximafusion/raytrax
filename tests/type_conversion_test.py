@@ -127,8 +127,14 @@ def test_ray_states_to_radial_profile(torus_wout):
         ),
     ]
 
+    # Compute volume derivative arrays
+    from raytrax.fourier import dvolume_drho
+
+    rho_1d = jnp.linspace(0, 1, 200)
+    dv_drho = dvolume_drho(torus_wout, rho_1d)
+
     # Convert to radial profile
-    radial_profile = ray_states_to_radial_profile(states, quantities, torus_wout)
+    radial_profile = ray_states_to_radial_profile(states, quantities, rho_1d, dv_drho)
 
     # Check that we have the ray points (not a binned grid)
     assert len(radial_profile.rho) == 2  # Same as number of ray points
