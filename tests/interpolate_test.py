@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from raytrax.api import get_interpolator_for_equilibrium
+from raytrax.types import MagneticConfiguration
 from raytrax.fourier import evaluate_rphiz_on_toroidal_grid
 from raytrax.interpolate import (
     build_magnetic_field_interpolator,
@@ -187,7 +187,7 @@ def test_cylindrical_grid_for_equilibrium(torus_wout):
 
 def test_build_magnetic_field_interpolator_w7x(w7x_wout):
     """Test the magnetic field interpolator using the W7X equilibrium."""
-    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
     B_interp_raw = build_magnetic_field_interpolator(interpolator)
     B_interpolator = _make_B_callable(B_interp_raw, w7x_wout.nfp)
     # Test the interpolator at different positions
@@ -247,7 +247,7 @@ def test_build_magnetic_field_interpolator_w7x(w7x_wout):
 def test_build_radial_interpolators_w7x(w7x_wout):
     """Test the radial interpolators using the W7X equilibrium."""
     # Create the equilibrium interpolator
-    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
 
     # Create sample radial profiles
     n_rho_profile = 50
@@ -364,7 +364,7 @@ def test_build_radial_interpolators_w7x(w7x_wout):
 def test_individual_interpolator_functions_w7x(w7x_wout):
     """Test the individual interpolator building functions."""
     # Create the equilibrium interpolator
-    equilibrium_interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    equilibrium_interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
 
     # Create sample radial profiles
     n_rho_profile = 50
@@ -419,7 +419,7 @@ def test_stellarator_symmetry_in_interpolators(w7x_wout):
     meaning both rho and |B| are equal at these mirror positions.
     Field periodicity: (R, phi, Z) == (R, phi + 2*pi/nfp, Z).
     """
-    equilibrium_interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    equilibrium_interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
     B_interp_raw = build_magnetic_field_interpolator(equilibrium_interpolator)
     B_interpolator = _make_B_callable(B_interp_raw, w7x_wout.nfp)
     rho_interp_raw = build_rho_interpolator(equilibrium_interpolator)
@@ -480,13 +480,13 @@ def test_stellarator_symmetry_in_interpolators(w7x_wout):
 
 def test_extrapolation_in_cylindrical_grid(w7x_wout):
     """Test that the cylindrical grid properly handles extrapolation beyond LCMS."""
-    from raytrax.api import get_interpolator_for_equilibrium
+    from raytrax.types import MagneticConfiguration
     from raytrax.interpolate import (
         build_magnetic_field_interpolator,
         build_rho_interpolator,
     )
 
-    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
     B_interp_raw = build_magnetic_field_interpolator(interpolator)
     B_interpolator = _make_B_callable(B_interp_raw, w7x_wout.nfp)
     rho_interp_raw = build_rho_interpolator(interpolator)

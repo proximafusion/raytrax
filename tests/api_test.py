@@ -3,15 +3,15 @@
 import jax.numpy as jnp
 import numpy as np
 
-from raytrax.api import get_interpolator_for_equilibrium, trace
-from raytrax.types import Beam, RadialProfiles
+from raytrax.api import trace
+from raytrax.types import Beam, RadialProfiles, MagneticConfiguration
 from tests.fixtures import w7x_wout
 
 
-def test_get_interpolator_for_equilibrium_w7x(w7x_wout):
-    """Test the get_interpolator_for_equilibrium function with the W7-X equilibrium."""
+def test_from_vmec_wout_w7x(w7x_wout):
+    """Test the MagneticConfiguration.from_vmec_wout classmethod with the W7-X equilibrium."""
     # Generate the interpolator
-    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
 
     # Check that the interpolator has the expected attributes
     assert hasattr(interpolator, "rphiz")
@@ -89,7 +89,7 @@ def test_trace_w7x_beam(w7x_wout):
         mode="O",
     )
 
-    interpolator = get_interpolator_for_equilibrium(w7x_wout)
+    interpolator = MagneticConfiguration.from_vmec_wout(w7x_wout)
     result = trace(interpolator, radial_profiles, beam)
 
     assert hasattr(result, "beam_profile")

@@ -129,6 +129,47 @@ class MagneticConfiguration:
     dvolume_drho: jt.Float[jax.Array, "nrho_1d"]
     """Volume derivative dV/drho on the 1D radial grid."""
 
+    @classmethod
+    def from_vmec_wout(
+        cls,
+        equilibrium: WoutLike,
+        magnetic_field_scale: float = 1.0,
+    ) -> "MagneticConfiguration":
+        """Generate interpolators for the given MHD equilibrium.
+
+        Args:
+            equilibrium: an MHD equilibrium compatible with `vmecpp.VmecWOut`
+            magnetic_field_scale: Factor to multiply all magnetic field values by.
+
+        Returns:
+            A MagneticConfiguration object containing interpolation data.
+        """
+        from .fourier import dvolume_drho as compute_dvolume_drho
+        from .interpolate import cylindrical_grid_for_equilibrium
+        import jax.numpy as jnp
+
+        # TODO add settings for grid resolution
+        interpolated_array = cylindrical_grid_for_equilibrium(
+            equilibrium=equilibrium, n_rho=40, n_theta=45, n_phi=50, n_r=45, n_z=55
+        )
+        rphiz = interpolated_array[..., :3]
+        rho = interpolated_array[..., 3]
+        magnetic_field = interpolated_array[..., 4:] * magnetic_field_scale
+
+        # Compute volume derivative on 1D radial grid
+        rho_1d = jnp.linspace(0, 1, 200)
+        dv_drho = compute_dvolume_drho(equilibrium, rho_1d)
+
+        return cls(
+            rphiz=rphiz,
+            magnetic_field=magnetic_field,
+            rho=rho,
+            nfp=equilibrium.nfp,
+            stellarator_symmetric=not equilibrium.lasym,
+            rho_1d=rho_1d,
+            dvolume_drho=dv_drho,
+        )
+
 
 @dataclass
 class RadialProfiles:
