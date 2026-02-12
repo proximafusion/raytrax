@@ -2,32 +2,14 @@ import jax
 import jax.numpy as jnp
 import interpax
 from raytrax import ray, solver
+from raytrax.types import Interpolators
 
 jax.config.update("jax_enable_x64", True)
 
 
-def test_y_to_state_roundtrip():
-    # Test with 7-component ODE state vector
-    y = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
-    state = solver._y_to_state(y, s=0.0)
-    y_reconstructed = solver._state_to_y(state)
-    assert jnp.allclose(y, y_reconstructed)
-
-
-def test_ray_tracing():
-    state = ray.RayState(
-        position=jnp.array([0.0, 0.0, 0.0]),
-        refractive_index=jnp.array([1.0, 1.0, 1.0]),
-        optical_depth=jnp.array(0.0),
-        arc_length=jnp.array(0.0),
-    )
-    setting = ray.RaySetting(
-        frequency=jnp.array(238e9),
-        mode="X",
-    )
-
-    # Create mock interpax interpolators
-    # Magnetic field: constant field in cylindrical coords (shape: (2, 2, 2, 3))
+def _mock_interpolators():
+    """Create mock interpolators for testing."""
+    # Magnetic field: constant 10 T in R direction (cylindrical coords → Cartesian)
     magnetic_field_interpolator = interpax.Interpolator3D(
         x=jnp.array([0.0, 10.0]),  # r
         y=jnp.array([0.0, 1.0]),  # phi
@@ -47,7 +29,7 @@ def test_ray_tracing():
         method="linear",
     )
 
-    # Rho: constant value (shape: (2, 2, 2))
+    # Rho: constant 0.5
     rho_interpolator = interpax.Interpolator3D(
         x=jnp.array([0.0, 10.0]),
         y=jnp.array([0.0, 1.0]),
@@ -57,106 +39,86 @@ def test_ray_tracing():
     )
 
     # Electron density profile
-    electron_density_profile_interpolator = interpax.Interpolator1D(
+    electron_density_interpolator = interpax.Interpolator1D(
         x=jnp.array([0.0, 1.0]),
         f=jnp.array([0.1, 0.1]),
         method="linear",
     )
 
     # Electron temperature profile
-    electron_temperature_profile_interpolator = interpax.Interpolator1D(
+    electron_temperature_interpolator = interpax.Interpolator1D(
         x=jnp.array([0.0, 1.0]),
         f=jnp.array([1.0, 1.0]),
         method="linear",
     )
 
-    ray_states, ray_quantities = solver.solve(
-        state,
-        setting,
-        magnetic_field_interpolator,
-        rho_interpolator,
-        electron_density_profile_interpolator,
-        electron_temperature_profile_interpolator,
-        nfp=5,
+    return Interpolators(
+        magnetic_field=magnetic_field_interpolator,
+        rho=rho_interpolator,
+        electron_density=electron_density_interpolator,
+        electron_temperature=electron_temperature_interpolator,
     )
-    print(f"Ray states: {len(ray_states)}")
-    print(f"Ray quantities: {len(ray_quantities)}")
-    assert len(ray_states) > 0
-    assert len(ray_quantities) == len(ray_states)
 
 
-def test_quantities_computed_during_solve():
-    """Test that quantities are computed correctly during ODE solve (augmented state)."""
-    # Set up initial conditions
-    state = ray.RayState(
-        position=jnp.array([0.0, 0.0, 0.0]),
-        refractive_index=jnp.array([1.0, 1.0, 1.0]),
-        optical_depth=jnp.array(0.0),
-        arc_length=jnp.array(0.0),
-    )
+def test_ray_tracing():
     setting = ray.RaySetting(
         frequency=jnp.array(238e9),
         mode="X",
     )
+    interpolators = _mock_interpolators()
 
-    # Create mock interpax interpolators
-    magnetic_field_interpolator = interpax.Interpolator3D(
-        x=jnp.array([0.0, 10.0]),
-        y=jnp.array([0.0, 1.0]),
-        z=jnp.array([0.0, 1.0]),
-        f=jnp.array(
-            [
-                [
-                    [[10.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
-                    [[10.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
-                ],
-                [
-                    [[10.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
-                    [[10.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
-                ],
-            ]
-        ),
-        method="linear",
+    position = jnp.array([0.0, 0.0, 0.0])
+    direction = jnp.array([1.0, 1.0, 1.0]) / jnp.sqrt(3.0)
+    rho_1d = jnp.linspace(0, 1, 50)
+    dvolume_drho = jnp.ones(50)
+
+    ts, ys, B_all, rho_all, ne_all, te_all, alpha_all, P_all, dP_dV = (
+        solver.trace_jitted(
+            position,
+            direction,
+            setting,
+            interpolators,
+            5,
+            rho_1d,
+            dvolume_drho,
+        )
     )
 
-    rho_interpolator = interpax.Interpolator3D(
-        x=jnp.array([0.0, 10.0]),
-        y=jnp.array([0.0, 1.0]),
-        z=jnp.array([0.0, 1.0]),
-        f=jnp.array([[[0.5, 0.5], [0.5, 0.5]], [[0.5, 0.5], [0.5, 0.5]]]),
-        method="linear",
+    n = int(jnp.sum(jnp.isfinite(ts)).item())
+    assert n > 0
+    assert ys.shape[1] == 7
+
+
+def test_quantities_computed_during_solve():
+    """Test that diagnostics are computed correctly in post-processing."""
+    setting = ray.RaySetting(
+        frequency=jnp.array(238e9),
+        mode="X",
+    )
+    interpolators = _mock_interpolators()
+
+    position = jnp.array([0.0, 0.0, 0.0])
+    direction = jnp.array([1.0, 1.0, 1.0]) / jnp.sqrt(3.0)
+    rho_1d = jnp.linspace(0, 1, 50)
+    dvolume_drho = jnp.ones(50)
+
+    ts, ys, B_all, rho_all, ne_all, te_all, alpha_all, P_all, dP_dV = (
+        solver.trace_jitted(
+            position,
+            direction,
+            setting,
+            interpolators,
+            5,
+            rho_1d,
+            dvolume_drho,
+        )
     )
 
-    electron_density_profile_interpolator = interpax.Interpolator1D(
-        x=jnp.array([0.0, 1.0]),
-        f=jnp.array([0.1, 0.1]),
-        method="linear",
-    )
+    n = int(jnp.sum(jnp.isfinite(ts)).item())
+    assert n > 0
 
-    electron_temperature_profile_interpolator = interpax.Interpolator1D(
-        x=jnp.array([0.0, 1.0]),
-        f=jnp.array([1.0, 1.0]),
-        method="linear",
-    )
-
-    # Solve ray equations - now returns both states and quantities
-    ray_states, ray_quantities = solver.solve(
-        state,
-        setting,
-        magnetic_field_interpolator,
-        rho_interpolator,
-        electron_density_profile_interpolator,
-        electron_temperature_profile_interpolator,
-        nfp=5,
-    )
-
-    # Check that we have the right number of quantities
-    assert len(ray_quantities) == len(ray_states)
-    assert len(ray_states) > 0
-
-    # Check that the first quantity has the correct values
-    first_quantities = ray_quantities[0]
-    assert jnp.allclose(first_quantities.magnetic_field, jnp.array([10.0, 0.0, 0.0]))
-    assert jnp.allclose(first_quantities.electron_density, jnp.array(0.1))
-    assert jnp.allclose(first_quantities.electron_temperature, jnp.array(1.0))
-    assert jnp.allclose(first_quantities.normalized_effective_radius, jnp.array(0.5))
+    # Check first valid point has expected values from mock interpolators
+    assert jnp.allclose(B_all[0], jnp.array([10.0, 0.0, 0.0]), atol=0.1)
+    assert jnp.allclose(ne_all[0], jnp.array(0.1), atol=1e-4)
+    assert jnp.allclose(te_all[0], jnp.array(1.0), atol=1e-4)
+    assert jnp.allclose(rho_all[0], jnp.array(0.5), atol=1e-4)

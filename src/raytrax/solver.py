@@ -1,16 +1,15 @@
-from collections.abc import Callable
-from functools import partial
-
+import diffrax
 import interpax
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt
+
 from raytrax import absorption, hamiltonian, ray
 from raytrax.interpolate import (
-    _map_to_fundamental_domain,
     _apply_B_stellarator_symmetry,
+    _map_to_fundamental_domain,
 )
-from scipy import integrate
+from raytrax.types import Interpolators
 
 
 def _y_to_state(
@@ -32,29 +31,10 @@ def _y_to_state(
     )
 
 
-def _state_to_y(
-    state: ray.RayState,
-) -> jt.Float[jax.Array, " n "]:
-    """Pack RayState into the 7-component ODE state vector."""
-    return jnp.concatenate(
-        [
-            state.position,
-            state.refractive_index,
-            jnp.array([state.optical_depth]),
-        ]
-    )
-
-
-@jax.jit
 def _right_hand_side(
     s: float,
     y: jt.Float[jax.Array, " n "],
-    setting: ray.RaySetting,
-    magnetic_field_interpolator: interpax.Interpolator3D,
-    rho_interpolator: interpax.Interpolator3D,
-    electron_density_profile_interpolator: interpax.Interpolator1D,
-    electron_temperature_profile_interpolator: interpax.Interpolator1D,
-    nfp: int,
+    args: tuple,
 ) -> jt.Float[jax.Array, " n "]:
     r"""Compute the right-hand side of the 7-component ray tracing ODE.
 
@@ -63,11 +43,12 @@ def _right_hand_side(
     which avoids the jacfwd(B) calls and the tight per-component tolerances that
     previously forced ~2 mm step sizes.
 
-    Interpolators are passed as interpax objects (pytrees) rather than closures,
-    which allows JAX to cache compiled traces by data content rather than object
-    identity, avoiding recompilation when passing different interpolator objects
-    with the same underlying data.
+    Uses diffrax's ``(t, y, args)`` calling convention. The args tuple is
+    ``(setting, interpolators, nfp)`` where ``interpolators`` is an
+    :class:`Interpolators` pytree.
     """
+    setting, interpolators, nfp = args
+
     state = _y_to_state(y, s)
 
     # Helper function to evaluate B field interpolator with coordinate transforms
@@ -76,7 +57,7 @@ def _right_hand_side(
         phi = jnp.arctan2(position[1], position[0])
         z = position[2]
         phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
-        B_grid = magnetic_field_interpolator(r, phi_mapped, z_query)
+        B_grid = interpolators.magnetic_field(r, phi_mapped, z_query)
         return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
 
     # Helper function to evaluate rho interpolator with coordinate transforms
@@ -85,7 +66,7 @@ def _right_hand_side(
         phi = jnp.arctan2(position[1], position[0])
         z = position[2]
         phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
-        return rho_interpolator(r, phi_mapped, z_query)
+        return interpolators.rho(r, phi_mapped, z_query)
 
     # Compute both Hamiltonian gradients in a single backward pass
     hamiltonian_gradient_r, hamiltonian_gradient_n = hamiltonian.hamiltonian_gradients(
@@ -93,7 +74,7 @@ def _right_hand_side(
         setting,
         eval_B,
         eval_rho,
-        electron_density_profile_interpolator,
+        interpolators.electron_density,
     )
     norm = jnp.linalg.norm(hamiltonian_gradient_n)
 
@@ -101,8 +82,8 @@ def _right_hand_side(
     dn_ds = -hamiltonian_gradient_r / norm
 
     rho = eval_rho(state.position)
-    ne = electron_density_profile_interpolator(rho)
-    te = electron_temperature_profile_interpolator(rho)
+    ne = interpolators.electron_density(rho)
+    te = interpolators.electron_temperature(rho)
     mag = eval_B(state.position)
     dtau_ds = absorption.absorption_coefficient_conditional(
         refractive_index=state.refractive_index,
@@ -116,99 +97,26 @@ def _right_hand_side(
     return jnp.concatenate([dr_ds, dn_ds, jnp.array([dtau_ds])])
 
 
-def _compute_quantities_at_positions(
-    positions: jt.Float[jax.Array, "n 3"],
-    optical_depths: jt.Float[jax.Array, " n"],
-    arc_lengths: jt.Float[jax.Array, " n"],
-    magnetic_field_interpolator: interpax.Interpolator3D,
-    rho_interpolator: interpax.Interpolator3D,
-    electron_density_profile_interpolator: interpax.Interpolator1D,
-    electron_temperature_profile_interpolator: interpax.Interpolator1D,
-    nfp: int,
-) -> list[ray.RayQuantities]:
-    """Evaluate all diagnostic quantities at a batch of trajectory positions.
-
-    Uses jax.vmap for a single vectorised XLA call rather than n separate
-    JIT-dispatched calls, eliminating per-point Python overhead.
-    """
-
-    # Helper function to evaluate B field with coordinate transforms
-    def eval_B(position: jt.Float[jax.Array, "3"]) -> jt.Float[jax.Array, "3"]:
-        r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
-        phi = jnp.arctan2(position[1], position[0])
-        z = position[2]
-        phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
-        B_grid = magnetic_field_interpolator(r, phi_mapped, z_query)
-        return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
-
-    # Helper function to evaluate rho with coordinate transforms
-    def eval_rho(position: jt.Float[jax.Array, "3"]) -> jt.Float[jax.Array, ""]:
-        r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
-        phi = jnp.arctan2(position[1], position[0])
-        z = position[2]
-        phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
-        return rho_interpolator(r, phi_mapped, z_query)
-
-    B_all = jax.vmap(eval_B)(positions)
-    rho_all = jax.vmap(eval_rho)(positions)
-    ne_all = jax.vmap(electron_density_profile_interpolator)(rho_all)
-    te_all = jax.vmap(electron_temperature_profile_interpolator)(rho_all)
-
-    # Derive alpha = dtau/ds from finite differences of the ODE-integrated optical depth
-    ds = jnp.diff(arc_lengths)
-    dtau = jnp.diff(optical_depths)
-    alpha_interior = dtau / jnp.where(ds > 0, ds, 1.0)
-    alpha_all = jnp.concatenate([alpha_interior[:1], alpha_interior])
-    P_all = alpha_all * jnp.exp(-optical_depths)
-
-    return [
-        ray.RayQuantities(
-            magnetic_field=B_all[i],
-            normalized_effective_radius=rho_all[i],
-            electron_density=ne_all[i],
-            electron_temperature=te_all[i],
-            absorption_coefficient=alpha_all[i],
-            linear_power_density=P_all[i],
-        )
-        for i in range(len(optical_depths))
-    ]
-
-
 def _straight_line_trace(
     position: jt.Float[jax.Array, "3"],
     direction: jt.Float[jax.Array, "3"],
-    magnetic_field_interpolator: interpax.Interpolator3D,
-    rho_interpolator: interpax.Interpolator3D,
+    interpolators: Interpolators,
     nfp: int,
     step_size: float = 0.01,
     max_steps: int = 100,
 ) -> tuple[jt.Float[jax.Array, "3"], jt.Float[jax.Array, ""]]:
-    """Trace a straight line until finding a position with positive magnetic field and electron density.
+    """Trace a straight line until finding a position inside the plasma.
 
-    This function performs straight line ray tracing by taking small steps in the given direction
-    until both the magnetic field magnitude and electron density are positive, or until the maximum
-    number of steps is reached.
-
-    Args:
-        position: Starting position vector
-        direction: Normalized direction vector for the straight line
-        magnetic_field_interpolator: interpax.Interpolator3D for magnetic field
-        rho_interpolator: interpax.Interpolator3D for radial coordinate
-        nfp: Number of field periods for stellarator symmetry
-        step_size: Size of each step along the straight line
-        max_steps: Maximum number of steps to take
-
-    Returns:
-        Tuple of (final_position, distance_traveled)
+    Takes small steps in the given direction until both the magnetic field
+    magnitude is positive and rho <= 1, or until max_steps is reached.
     """
 
-    # Helper functions with coordinate transforms
     def eval_B(pos: jt.Float[jax.Array, "3"]) -> jt.Float[jax.Array, "3"]:
         r = jnp.sqrt(pos[0] ** 2 + pos[1] ** 2)
         phi = jnp.arctan2(pos[1], pos[0])
         z = pos[2]
         phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
-        B_grid = magnetic_field_interpolator(r, phi_mapped, z_query)
+        B_grid = interpolators.magnetic_field(r, phi_mapped, z_query)
         return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
 
     def eval_rho(pos: jt.Float[jax.Array, "3"]) -> jt.Float[jax.Array, ""]:
@@ -216,7 +124,7 @@ def _straight_line_trace(
         phi = jnp.arctan2(pos[1], pos[0])
         z = pos[2]
         phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
-        return rho_interpolator(r, phi_mapped, z_query)
+        return interpolators.rho(r, phi_mapped, z_query)
 
     # Check if we're already at a valid position
     initial_B = eval_B(position)
@@ -249,129 +157,126 @@ def _straight_line_trace(
     return final_pos, final_dist
 
 
-_straight_line_trace_jitted = jax.jit(_straight_line_trace)
+def _cond_exit(t, y, args, **kwargs):
+    """Terminate when ray exits plasma (rho > 1.05)."""
+    pos = y[:3]
+    r = jnp.sqrt(pos[0] ** 2 + pos[1] ** 2)
+    phi = jnp.arctan2(pos[1], pos[0])
+    z = pos[2]
+    nfp_ = args[2]
+    phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp_)
+    rho_val = args[1].rho(r, phi_mapped, z_query)
+    return rho_val - 1.05
 
 
-def solve(
-    state: ray.RayState,
+def _cond_absorbed(t, y, args, **kwargs):
+    """Terminate when ray is fully absorbed (exp(-tau) < 1e-3)."""
+    return jnp.exp(-y[6]) - 1e-3
+
+
+def _cond_oob(t, y, args, **kwargs):
+    """Terminate when ray leaves the computational domain (|r| > 20 m)."""
+    return 20.0 - jnp.linalg.norm(y[:3])
+
+
+_event = diffrax.Event(
+    cond_fn=[_cond_exit, _cond_absorbed, _cond_oob],
+    direction=[True, False, False],
+)
+
+_term = diffrax.ODETerm(_right_hand_side)
+_solver = diffrax.Tsit5()
+_stepsize_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6, dtmax=0.05)
+_saveat = diffrax.SaveAt(steps=True, t0=True)
+
+
+@jax.jit
+def trace_jitted(
+    position: jt.Float[jax.Array, "3"],
+    direction: jt.Float[jax.Array, "3"],
     setting: ray.RaySetting,
-    magnetic_field_interpolator: interpax.Interpolator3D,
-    rho_interpolator: interpax.Interpolator3D,
-    electron_density_profile_interpolator: interpax.Interpolator1D,
-    electron_temperature_profile_interpolator: interpax.Interpolator1D,
+    interpolators: Interpolators,
     nfp: int,
-    use_straight_line_init: bool = True,
-    straight_line_step_size: float = 0.01,
-    max_straight_line_steps: int = 100,
-) -> tuple[list[ray.RayState], list[ray.RayQuantities]]:
-    """Solve the ray tracing equations.
+    rho_1d: jt.Float[jax.Array, " nrho"],
+    dvolume_drho: jt.Float[jax.Array, " nrho"],
+) -> tuple:
+    """Fully JIT-compiled ray trace: vacuum propagation + ODE solve + diagnostics + radial profile.
 
-    Integrates a 7-component ODE: (position[3], refractive_index[3], optical_depth[1]).
-    Diagnostic quantities (B, ρ, nₑ, Tₑ, α, P) are computed in post-processing.
-
-    Args:
-        state: Initial ray state
-        setting: Ray tracing settings (frequency, mode)
-        magnetic_field_interpolator: Interpolator for B(r, phi, z)
-        rho_interpolator: Interpolator for rho(r, phi, z)
-        electron_density_profile_interpolator: Interpolator for ne(rho)
-        electron_temperature_profile_interpolator: Interpolator for Te(rho)
-        nfp: Number of field periods for stellarator symmetry
-        use_straight_line_init: Whether to use straight line tracing to find valid starting point
-        straight_line_step_size: Size of each step for straight line tracing
-        max_straight_line_steps: Maximum number of steps for straight line tracing
-
-    Returns:
-        Tuple of (ray_states, ray_quantities) representing the ray trajectory and associated quantities
+    Returns fixed-size arrays (padded to max_steps=4096). Invalid entries beyond the
+    last integration step are inf/NaN and must be trimmed by the caller.
     """
+    # 1. Straight-line trace to plasma entry
+    entry_pos, vacuum_dist = _straight_line_trace(
+        position,
+        direction,
+        interpolators,
+        nfp,
+    )
 
-    initial_position = state.position
-    initial_arc_length = state.arc_length
+    # 2. Build ODE initial state
+    y0 = jnp.concatenate([entry_pos, direction, jnp.array([0.0])])
+    t_start = vacuum_dist
+    t_end = t_start + 20.0
+    args = (setting, interpolators, nfp)
 
-    if use_straight_line_init:
-        direction = jnp.asarray(state.refractive_index)
+    # 3. ODE solve
+    sol = diffrax.diffeqsolve(
+        terms=_term,
+        solver=_solver,
+        t0=t_start,
+        t1=t_end,
+        dt0=0.001,
+        y0=y0,
+        args=args,
+        saveat=_saveat,
+        stepsize_controller=_stepsize_controller,
+        event=_event,
+        max_steps=4096,
+        throw=False,
+    )
+    ts = sol.ts
+    ys = sol.ys
 
-        initial_position, straight_line_distance = _straight_line_trace_jitted(
-            position=initial_position,
-            direction=direction,
-            magnetic_field_interpolator=magnetic_field_interpolator,
-            rho_interpolator=rho_interpolator,
-            nfp=nfp,
-            step_size=straight_line_step_size,
-            max_steps=max_straight_line_steps,
-        )
-        initial_arc_length = state.arc_length + straight_line_distance
-        state = ray.RayState(
-            position=initial_position,
-            refractive_index=state.refractive_index,
-            optical_depth=state.optical_depth,
-            arc_length=initial_arc_length,
-        )
+    # 4. Post-processing: compute diagnostics on the full buffer
+    positions = ys[:, :3]
+    optical_depths = ys[:, 6]
 
-    def ray_exits_plasma(_t, y):
-        # Need to wrap rho evaluation with coordinate transform
-        pos = jnp.asarray(y[:3])
+    def eval_B(pos):
+        r = jnp.sqrt(pos[0] ** 2 + pos[1] ** 2)
+        phi = jnp.arctan2(pos[1], pos[0])
+        z = pos[2]
+        phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
+        B_grid = interpolators.magnetic_field(r, phi_mapped, z_query)
+        return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
+
+    def eval_rho(pos):
         r = jnp.sqrt(pos[0] ** 2 + pos[1] ** 2)
         phi = jnp.arctan2(pos[1], pos[0])
         z = pos[2]
         phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
-        rho_val = rho_interpolator(r, phi_mapped, z_query)
-        return float(rho_val) - 1.05
+        return interpolators.rho(r, phi_mapped, z_query)
 
-    ray_exits_plasma.terminal = True  # type: ignore
-    ray_exits_plasma.direction = 1  # type: ignore
+    B_all = jax.vmap(eval_B)(positions)
+    rho_all = jax.vmap(eval_rho)(positions)
+    ne_all = jax.vmap(interpolators.electron_density)(rho_all)
+    te_all = jax.vmap(interpolators.electron_temperature)(rho_all)
 
-    def ray_fully_absorbed(_t, y):
-        return float(jnp.exp(-y[6])) - 1e-3
+    # Derive alpha = dtau/ds from finite differences
+    ds = jnp.diff(ts)
+    dtau = jnp.diff(optical_depths)
+    alpha_interior = dtau / jnp.where(ds > 0, ds, 1.0)
+    alpha_all = jnp.concatenate([alpha_interior[:1], alpha_interior])
+    P_all = alpha_all * jnp.exp(-optical_depths)
 
-    ray_fully_absorbed.terminal = True  # type: ignore
-    ray_fully_absorbed.direction = -1  # type: ignore
+    # 5. Radial profile: dP/dV from finite differences
+    drho_ds = jnp.diff(rho_all) / jnp.where(ds > 0, ds, 1.0)
+    drho_ds_padded = jnp.concatenate([drho_ds[:1], drho_ds, drho_ds[-1:]])
+    drho_ds_avg = 0.5 * (drho_ds_padded[:-1] + drho_ds_padded[1:])
 
-    def ray_out_of_bounds(_t, y):
-        return 20.0 - float(jnp.linalg.norm(jnp.asarray(y[:3])))
-
-    ray_out_of_bounds.terminal = True  # type: ignore
-    ray_out_of_bounds.direction = -1  # type: ignore
-
-    fun = partial(
-        _right_hand_side,
-        setting=setting,
-        magnetic_field_interpolator=magnetic_field_interpolator,
-        rho_interpolator=rho_interpolator,
-        electron_density_profile_interpolator=electron_density_profile_interpolator,
-        electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
-        nfp=nfp,
+    dV_drho = interpax.interp1d(
+        rho_all, rho_1d, dvolume_drho, method="cubic", extrap=True
     )
-    y0 = _state_to_y(state)
-    t_start = float(initial_arc_length)
-    res = integrate.solve_ivp(
-        fun=fun,
-        t_span=(t_start, t_start + 20.0),
-        y0=y0,
-        method="LSODA",
-        events=[ray_exits_plasma, ray_fully_absorbed, ray_out_of_bounds],
-        dense_output=False,
-        max_step=0.05,
-        rtol=1e-4,
-        atol=1e-6,
-    )
+    dP_drho = P_all / jnp.where(jnp.abs(drho_ds_avg) > 0, jnp.abs(drho_ds_avg), 1.0)
+    dP_dV = dP_drho / jnp.where(jnp.abs(dV_drho) > 0, dV_drho, 1.0)
 
-    # Extract ray states from the 7-component ODE solution
-    ray_states = [_y_to_state(y=jnp.asarray(y), s=t) for t, y in zip(res.t, res.y.T)]
-
-    # Vectorised post-processing: evaluate all diagnostics in one vmap call
-    positions = jnp.stack([s.position for s in ray_states])
-    optical_depths = jnp.array([float(s.optical_depth) for s in ray_states])
-    arc_lengths = jnp.array([float(s.arc_length) for s in ray_states])
-    ray_quantities = _compute_quantities_at_positions(
-        positions=positions,
-        optical_depths=optical_depths,
-        arc_lengths=arc_lengths,
-        magnetic_field_interpolator=magnetic_field_interpolator,
-        rho_interpolator=rho_interpolator,
-        electron_density_profile_interpolator=electron_density_profile_interpolator,
-        electron_temperature_profile_interpolator=electron_temperature_profile_interpolator,
-        nfp=nfp,
-    )
-
-    return ray_states, ray_quantities
+    return ts, ys, B_all, rho_all, ne_all, te_all, alpha_all, P_all, dP_dV

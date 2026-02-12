@@ -114,8 +114,8 @@ def absorption_coefficient(
         polarization_vector=polarization_vector,
     )
     resonance_integral = 0.0
-    # Loop over harmonics - using n=1,2,3,4 to match typical TRAVIS runs
-    for harmonic_index in range(1, 5):
+    # TODO extend to higher harmonics - currently only 1st and 2nd harmonic
+    for harmonic_index in range(1, 3):
         resonance_integral += jax.lax.cond(
             # The resonance condition is given by
             # gamma = nY + n_para * u_para
@@ -232,7 +232,6 @@ def compute_resonance_integral(
     u_max = jnp.where(n_para < 0, jnp.minimum(u_max, u_gamma_limit), u_max)
 
     # Early return if resonance region doesn't intersect bulk of distribution.
-    # Similar to Travis's Check_ec_res_n, this checks if the resonance region
     # intersects with the bulk of the Maxwellian. Use u_cutoff = 5 * thermal_velocity
     # (corresponding to exp(-12.5) ≈ 4e-6 of the distribution peak).
     u_cutoff = 5.0 * thermal_velocity

@@ -19,16 +19,6 @@ class RayState:
     arc_length: jt.Float[jax.Array, ""]
 
 
-@dataclass(frozen=True)
-class RayQuantities:
-    magnetic_field: jt.Float[jax.Array, "3"]
-    absorption_coefficient: jt.Float[jax.Array, ""]
-    electron_density: jt.Float[jax.Array, ""]
-    electron_temperature: jt.Float[jax.Array, ""]
-    linear_power_density: jt.Float[jax.Array, ""]
-    normalized_effective_radius: jt.Float[jax.Array, ""]
-
-
 jax.tree_util.register_pytree_node(
     RayState,
     lambda rs: (

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable, Callable
 
+import interpax
 import jax
 import jaxtyping as jt
 
@@ -145,3 +146,39 @@ class RadialProfiles:
 
     electron_temperature: jt.Float[jax.Array, "nrho"]
     """The electron temperature profile in keV."""
+
+
+@dataclass(frozen=True)
+class Interpolators:
+    """Bundle of interpolation functions for ray tracing.
+
+    Groups the four interpolators needed by the ODE solver into a single
+    pytree-compatible object passed through JIT as one argument.
+    """
+
+    magnetic_field: interpax.Interpolator3D
+    """Interpolator for B(r, phi, z) on the fundamental domain."""
+
+    rho: interpax.Interpolator3D
+    """Interpolator for rho(r, phi, z) on the fundamental domain."""
+
+    electron_density: interpax.Interpolator1D
+    """Interpolator for ne(rho)."""
+
+    electron_temperature: interpax.Interpolator1D
+    """Interpolator for Te(rho)."""
+
+
+jax.tree_util.register_pytree_node(
+    Interpolators,
+    lambda i: (
+        (i.magnetic_field, i.rho, i.electron_density, i.electron_temperature),
+        None,
+    ),
+    lambda _, children: Interpolators(
+        magnetic_field=children[0],
+        rho=children[1],
+        electron_density=children[2],
+        electron_temperature=children[3],
+    ),
+)
