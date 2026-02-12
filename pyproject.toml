@@ -18,6 +18,7 @@ dependencies = [
   "diffrax",
   "beartype",
   "vmecpp",
+  "safetensors",
 ]
 requires-python = ">=3.10"
 authors = [
