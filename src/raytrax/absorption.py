@@ -114,8 +114,8 @@ def absorption_coefficient(
         polarization_vector=polarization_vector,
     )
     resonance_integral = 0.0
-    # TODO(dstraub): implement higher harmonics (currently n=1,2)
-    for harmonic_index in range(1, 3):
+    # Loop over harmonics - using n=1,2,3,4 to match typical TRAVIS runs
+    for harmonic_index in range(1, 5):
         resonance_integral += jax.lax.cond(
             # The resonance condition is given by
             # gamma = nY + n_para * u_para
@@ -223,6 +223,13 @@ def compute_resonance_integral(
     u_res = nY * n_para / denom
     u_min = u_res - delta_u
     u_max = u_res + delta_u
+
+    # Enforce physical constraint: gamma = nY + N_para * u_para >= 1
+    # This gives: u_para >= (1 - nY) / N_para (if N_para > 0)
+    #         or: u_para <= (1 - nY) / N_para (if N_para < 0)
+    u_gamma_limit = (1 - nY) / n_para
+    u_min = jnp.where(n_para > 0, jnp.maximum(u_min, u_gamma_limit), u_min)
+    u_max = jnp.where(n_para < 0, jnp.minimum(u_max, u_gamma_limit), u_max)
 
     # Early return if resonance region doesn't intersect bulk of distribution.
     # Similar to Travis's Check_ec_res_n, this checks if the resonance region
