@@ -6,6 +6,74 @@ import jax
 import jaxtyping as jt
 
 
+class SafetensorsMixin:
+    """Mixin for dataclasses to add safetensors save/load functionality."""
+
+    def save(self, path: str) -> None:
+        """Save dataclass to a safetensors file.
+
+        Args:
+            path: Path to save to (should end in .safetensors)
+        """
+        from dataclasses import fields
+        from safetensors.numpy import save_file
+        import numpy as np
+
+        # Separate arrays from scalars
+        tensors = {}
+        metadata = {}
+
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if isinstance(value, jax.Array):
+                # Convert JAX arrays to numpy (zero-copy on CPU)
+                tensors[field.name] = np.asarray(value)
+            else:
+                # Store scalars as metadata strings
+                metadata[field.name] = str(value)
+
+        save_file(tensors, path, metadata=metadata)
+
+    @classmethod
+    def load(cls, path: str):
+        """Load dataclass from a safetensors file.
+
+        Args:
+            path: Path to the safetensors file to load
+
+        Returns:
+            Loaded instance of the dataclass
+        """
+        from dataclasses import fields
+        from safetensors.numpy import load_file
+        from safetensors import safe_open
+        import jax.numpy as jnp
+
+        # Load tensors and metadata
+        tensors = load_file(path)
+
+        with safe_open(path, framework="numpy") as f:
+            metadata = f.metadata() or {}
+
+        # Reconstruct all fields
+        field_values = {}
+        for field in fields(cls):
+            if field.name in tensors:
+                # It's an array - convert back to JAX
+                field_values[field.name] = jnp.array(tensors[field.name])
+            elif field.name in metadata:
+                # It's a scalar - parse back from string
+                value_str = metadata[field.name]
+                if field.type == int:
+                    field_values[field.name] = int(value_str)
+                elif field.type == bool:
+                    field_values[field.name] = value_str == "True"
+                else:
+                    field_values[field.name] = value_str
+
+        return cls(**field_values)
+
+
 @runtime_checkable
 class WoutLike(Protocol):
     """Protocol for objects that can be used as VmecWOut."""
@@ -100,7 +168,7 @@ class TracingResult:
 
 
 @dataclass
-class MagneticConfiguration:
+class MagneticConfiguration(SafetensorsMixin):
     """Magnetic configuration and geometry on a cylindrical grid.
 
     Contains the magnetic field B and normalized effective radius rho on a
