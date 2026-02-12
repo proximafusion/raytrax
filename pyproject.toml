@@ -20,7 +20,7 @@ dependencies = [
   "vmecpp",
   "safetensors",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
   {name = "David Straub", email = "straub@protonmail.com"},
 ]
