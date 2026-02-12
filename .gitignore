@@ -1,4 +1,5 @@
 *.json
+*.txt
 
 # NetCDF files (VMEC)
 *.nc

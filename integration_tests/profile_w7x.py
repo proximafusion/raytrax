@@ -16,8 +16,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from raytrax.api import get_interpolator_for_equilibrium, trace
-from raytrax.types import Beam, RadialProfiles
+from raytrax.api import trace
+from raytrax.types import Beam, RadialProfiles, MagneticConfiguration
 from raytrax.data import get_w7x_wout
 from raytrax.interpolate import (
     build_magnetic_field_interpolator,
@@ -62,7 +62,7 @@ def w7x_aiming_angles_to_direction(alpha_deg, beta_deg, phi_antenna_deg):
 
 def find_b0_on_axis(wout):
     """Find |B| on the magnetic axis at phi=0, z=0."""
-    eq_unscaled = get_interpolator_for_equilibrium(wout)
+    eq_unscaled = MagneticConfiguration.from_vmec_wout(wout)
     B_interp = build_magnetic_field_interpolator(eq_unscaled)
     rho_interp = build_rho_interpolator(eq_unscaled)
 
@@ -87,7 +87,7 @@ def setup_w7x_scenario():
     b0_unscaled = find_b0_on_axis(wout)
     b_scale = B0_TARGET / b0_unscaled
 
-    eq = get_interpolator_for_equilibrium(wout, magnetic_field_scale=b_scale)
+    eq = MagneticConfiguration.from_vmec_wout(wout, magnetic_field_scale=b_scale)
 
     # Build profiles
     n_rho = 501
@@ -158,7 +158,7 @@ def main():
 
     # Build interpolators
     t0 = time.perf_counter()
-    eq = get_interpolator_for_equilibrium(wout, magnetic_field_scale=b_scale)
+    eq = MagneticConfiguration.from_vmec_wout(wout, magnetic_field_scale=b_scale)
     t_interp_build = time.perf_counter() - t0
     print(f"  Build MagneticConfiguration:  {format_time(t_interp_build)}")
 

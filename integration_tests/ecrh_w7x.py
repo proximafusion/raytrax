@@ -11,8 +11,8 @@ import shutil
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "tests"))
 
-from raytrax.api import get_interpolator_for_equilibrium, trace
-from raytrax.types import Beam, RadialProfiles
+from raytrax.api import trace
+from raytrax.types import Beam, RadialProfiles, MagneticConfiguration
 from raytrax.data import get_w7x_wout
 from travis_wrapper import run_travis, TravisECRHInput, save_reference_data
 
@@ -87,7 +87,7 @@ def find_b0_on_axis(wout):
         build_rho_interpolator,
     )
 
-    eq_unscaled = get_interpolator_for_equilibrium(wout)
+    eq_unscaled = MagneticConfiguration.from_vmec_wout(wout)
     B_interp = build_magnetic_field_interpolator(eq_unscaled)
     rho_interp = build_rho_interpolator(eq_unscaled)
 
@@ -126,7 +126,7 @@ def main():
     wout.save(wout_nc_path)
 
     # For raytrax, apply magnetic_field_scale to match target
-    eq_interp = get_interpolator_for_equilibrium(wout, magnetic_field_scale=b_scale)
+    eq_interp = MagneticConfiguration.from_vmec_wout(wout, magnetic_field_scale=b_scale)
 
     # W7-X realistic profiles matching TRAVIS input
     # Central_Ne_[1e20/m^3] 0.75, Ne-parm 0.05 20 2.8 0 0.32
