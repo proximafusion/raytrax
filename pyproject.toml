@@ -46,3 +46,6 @@ testpaths = ["tests"]
 python_files = ["*_test.py", "test_*.py"]
 # Explicitly exclude integration tests
 norecursedirs = ["integration_tests", ".git", ".tox", "dist", "build", "*.egg"]
+markers = [
+  "integration: potentially slow integration tests",
+]

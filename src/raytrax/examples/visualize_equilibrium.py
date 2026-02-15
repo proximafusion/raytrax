@@ -18,7 +18,6 @@ To open the generated ParaView state file:
 - Select paraview_state_w7x.py and click OK
 """
 
-import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -28,44 +27,13 @@ try:
 except ImportError as exc:
     raise ImportError("You must install pyvista to run this example!") from exc
 
-try:
-    import vmecpp
-except ImportError as exc:
-    raise ImportError("You must install vmecpp to run this example!") from exc
-
+from raytrax.data import get_w7x_wout
 from raytrax.interpolate import cylindrical_grid_for_equilibrium
 
-W7X_JSON = "https://github.com/proximafusion/vmecpp/raw/main/examples/data/w7x.json"
-
-
-def download_file(url: str, dest_path: Path):
-    if not dest_path.exists():
-        print(f"Downloading {url} to {dest_path}...")
-        urllib.request.urlretrieve(url, dest_path)
-        print("Download complete.")
-    else:
-        print(f"File already exists at {dest_path}.")
-
-
-def equilibrium_from_vmec_input(input_path: Path) -> vmecpp.VmecWOut:
-    """Run VMEC++ from a given input file and return the equilibrium."""
-    vmec_input = vmecpp.VmecInput.from_file(input_path)
-    print("Running VMEC++...")
-    vmec_output = vmecpp.run(vmec_input)
-    print("VMEC++ run complete.")
-    return vmec_output.wout
-
-
 if __name__ == "__main__":
-    # create data directory
     data_dir = Path(__file__).parent
-    data_dir.mkdir(exist_ok=True)
 
-    # download VMEC++ JSON file for W7-X
-    download_file(W7X_JSON, data_dir / "w7x.json")
-
-    # run VMEC++
-    equilibrium = equilibrium_from_vmec_input(data_dir / "w7x.json")
+    equilibrium = get_w7x_wout()
 
     # interpolate quantities on cylindrical grid
     cylindrical_grid = cylindrical_grid_for_equilibrium(

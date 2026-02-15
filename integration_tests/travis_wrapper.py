@@ -392,6 +392,13 @@ def save_reference_data(output: TravisECRHOutput, filepath: Path) -> None:
         "linear_power_density_w_per_m": np.asarray(
             output.linear_power_density_w_per_m
         ).tolist(),
+        "electron_density_1e20": np.asarray(output.electron_density_1e20).tolist(),
+        "electron_temperature_keV": np.asarray(
+            output.electron_temperature_keV
+        ).tolist(),
+        "magnetic_field_magnitude_T": np.asarray(
+            output.magnetic_field_magnitude_T
+        ).tolist(),
         "rho_profile": np.asarray(output.rho_profile).tolist(),
         "power_density_w_per_m3": np.asarray(output.power_density_w_per_m3).tolist(),
         "total_absorbed_power_mw": output.total_absorbed_power_mw,
@@ -417,6 +424,9 @@ def load_reference_data(filepath: Path) -> TravisECRHOutput:
         rho=jnp.array(data["rho"]),
         absorption_m_inv=jnp.array(data["absorption_m_inv"]),
         linear_power_density_w_per_m=jnp.array(data["linear_power_density_w_per_m"]),
+        electron_density_1e20=jnp.array(data["electron_density_1e20"]),
+        electron_temperature_keV=jnp.array(data["electron_temperature_keV"]),
+        magnetic_field_magnitude_T=jnp.array(data["magnetic_field_magnitude_T"]),
         rho_profile=jnp.array(data["rho_profile"]),
         power_density_w_per_m3=jnp.array(data["power_density_w_per_m3"]),
         total_absorbed_power_mw=data["total_absorbed_power_mw"],
