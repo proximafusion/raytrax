@@ -4,9 +4,15 @@ site_url = "https://proximafusion.github.io/raytrax/"
 docs_dir = "docs"
 nav = [
     {"Home" = "index.md"},
-    {"Getting Started" = "getting-started.md"},
-    {"Theory" = "theory.md"},
-    {"Reference" = "api.md"},
+    {"Get Started" = "getting-started.md"},
+    {"Theory" = [
+        {"Overview" = "theory.md"},
+        {"Ray Tracing" = "theory/ray-tracing.md"},
+        {"Absorption" = "theory/absorption.md"},
+    ]},
+    {"Reference" = [
+        {"API Reference" = "api.md"},
+    ]},
 ]
 extra_javascript = [
     "javascripts/mathjax.js",
@@ -19,7 +25,9 @@ logo = "assets/proxima.svg"
 favicon = "assets/proxima.svg"
 palette.accent = "teal"
 features = [
-    "content.code.copy"
+    "content.code.copy",
+    "navigation.sections",
+    "navigation.footer"
 ]
 
 [project.plugins.mkdocstrings.handlers.python]

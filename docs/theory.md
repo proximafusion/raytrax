@@ -38,7 +38,7 @@ where $\boldsymbol{I}$ is the identity tensor and $\boldsymbol{n}\boldsymbol{n}$
 
 $$\det \boldsymbol{D} = 0$$
 
-This dispersion relation connects the wave vector $\boldsymbol{k}$ to the frequency $\omega$ and the local plasma parameters through $\boldsymbol{\varepsilon}(\boldsymbol{B}, n_e, T)$.
+This dispersion relation connects the wave vector $\boldsymbol{k}$ to the frequency $\omega$ and the local plasma parameters through $\boldsymbol{\varepsilon}(\boldsymbol{B}, n_e, T)$. See [ray tracing](theory/ray-tracing.md) for how this dispersion relation is used to derive the ray equations.
 
 ## Raytrax Inputs and Outputs
 
