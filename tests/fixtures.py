@@ -9,6 +9,7 @@ import pytest
 from vmecpp import VmecWOut
 
 from raytrax.data import get_w7x_wout
+from raytrax.interpolate import MagneticConfiguration
 
 
 @dataclass
@@ -102,3 +103,49 @@ def w7x_travis_wout():
         pytest.skip(f"TRAVIS W7-X equilibrium file not found at {wout_path}")
 
     return VmecWOut.from_wout_file(str(wout_path))
+
+
+@pytest.fixture
+def tokamak_magnetic_configuration():
+    """Analytic tokamak MagneticConfiguration with circular cross-section.
+
+    B_phi = B0 * R0 / R  (vacuum toroidal field, 1/R dependence)
+    B_R = B_Z = 0
+    rho = sqrt((R - R0)^2 + Z^2) / a
+
+    Parameters: R0=3.0 m, a=1.0 m, B0=2.5 T.
+    """
+    R0, a, B0 = 3.0, 1.0, 2.5
+    n_R, n_Z = 50, 60
+
+    R_grid = jnp.linspace(R0 - 1.5 * a, R0 + 1.5 * a, n_R)
+    Z_grid = jnp.linspace(-1.5 * a, 1.5 * a, n_Z)
+    R_2d, Z_2d = jnp.meshgrid(R_grid, Z_grid, indexing="ij")
+
+    B_R = jnp.zeros_like(R_2d)
+    B_phi = B0 * R0 / R_2d
+    B_Z = jnp.zeros_like(R_2d)
+
+    rho_2d = jnp.sqrt((R_2d - R0) ** 2 + Z_2d**2) / a
+
+    phi_grid = jnp.array([0.0])
+    rphiz = jnp.stack(
+        jnp.meshgrid(R_grid, phi_grid, Z_grid, indexing="ij"),
+        axis=-1,
+    )
+    magnetic_field = jnp.stack([B_R, B_phi, B_Z], axis=-1)[:, jnp.newaxis, :, :]
+    rho = rho_2d[:, jnp.newaxis, :]
+
+    rho_1d = jnp.linspace(0, 1, 200)
+    dvolume_drho = 4.0 * jnp.pi**2 * R0 * a**2 * rho_1d
+
+    return MagneticConfiguration(
+        rphiz=rphiz,
+        magnetic_field=magnetic_field,
+        rho=rho,
+        nfp=1,
+        is_stellarator_symmetric=False,
+        rho_1d=rho_1d,
+        dvolume_drho=dvolume_drho,
+        is_axisymmetric=True,
+    )

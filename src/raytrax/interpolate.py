@@ -31,15 +31,15 @@ class MagneticConfiguration(SafetensorsMixin):
     """Magnetic configuration and geometry on a cylindrical grid.
 
     Contains the magnetic field B and normalized effective radius rho on a
-    3D cylindrical grid (r, phi, z), along with volume information for
+    3D cylindrical grid (R, phi, Z), along with volume information for
     computing deposition profiles.
     """
 
     rphiz: jt.Float[jax.Array, "npoints 3"]
-    """The (r, phi, z) coordinates of the points on the interpolation grid."""
+    """The (R, phi, Z) coordinates of the points on the interpolation grid."""
 
     magnetic_field: jt.Float[jax.Array, "npoints 3"]
-    """The magnetic field at each point on the interpolation grid."""
+    """The magnetic field (B_R, B_phi, B_Z) in cylindrical components at each grid point."""
 
     rho: jt.Float[jax.Array, "npoints"]
     """The normalized effective minor radius at each point on the interpolation grid."""
@@ -47,7 +47,7 @@ class MagneticConfiguration(SafetensorsMixin):
     nfp: int
     """Number of field periods (toroidal periodicity)."""
 
-    stellarator_symmetric: bool
+    is_stellarator_symmetric: bool
     """Whether the configuration has stellarator symmetry."""
 
     rho_1d: jt.Float[jax.Array, "nrho_1d"]
@@ -55,6 +55,9 @@ class MagneticConfiguration(SafetensorsMixin):
 
     dvolume_drho: jt.Float[jax.Array, "nrho_1d"]
     """Volume derivative dV/drho on the 1D radial grid."""
+
+    is_axisymmetric: bool = False
+    """Whether the configuration is axisymmetric (tokamak) or 3D (stellarator)."""
 
     @classmethod
     def from_vmec_wout(
@@ -89,7 +92,7 @@ class MagneticConfiguration(SafetensorsMixin):
             magnetic_field=magnetic_field,
             rho=rho,
             nfp=equilibrium.nfp,
-            stellarator_symmetric=not equilibrium.lasym,
+            is_stellarator_symmetric=not equilibrium.lasym,
             rho_1d=rho_1d,
             dvolume_drho=dv_drho,
         )
@@ -105,8 +108,8 @@ def interpolate_toroidal_to_cylindrical_grid(
 
     Args:
     - rphiz_toroidal: An array of cylindrical coordinates (the last dimension
-        are the three coordinates r, phi, z) on the toroidal grid.
-    - rz_cylindrical: The cylindrical coordinates (r, z) on the cylindrical grid.
+        are the three coordinates R, phi, Z) on the toroidal grid.
+    - rz_cylindrical: The cylindrical coordinates (R, Z) on the cylindrical grid.
         Note that phi does not need to be provided because we use the same phi
         grid as for the toroidal grid, so no interpolation in phi is needed.
     - value_toroidal: The values of the quantities to be interpolated on the
@@ -149,7 +152,8 @@ def cylindrical_grid_for_equilibrium(
     Returns:
         A JAX array of values on the cylindrical grid with shape (n_r, n_phi, n_z, 7).
         The last dimension is a vector with the following components:
-        (r, phi, z, rho, B_x, B_y, B_z).
+        (R, phi, Z, rho, B_R, B_phi, B_Z) where the magnetic field components
+        are in cylindrical coordinates.
     """
     if equilibrium.lasym:
         raise NotImplementedError(
@@ -175,6 +179,17 @@ def cylindrical_grid_for_equilibrium(
         equilibrium,
         rho_theta_phi,
     )
+    # Convert Cartesian B to cylindrical (B_R, B_phi, B_Z) for storage
+    phi = rphiz[..., 1]
+    cp, sp = jnp.cos(phi), jnp.sin(phi)
+    Bcyl = jnp.stack(
+        [
+            Bxyz[..., 0] * cp + Bxyz[..., 1] * sp,
+            -Bxyz[..., 0] * sp + Bxyz[..., 1] * cp,
+            Bxyz[..., 2],
+        ],
+        axis=-1,
+    )
     rmin = jnp.min(rphiz[..., 0])
     rmax = jnp.max(rphiz[..., 0])
     zmin = jnp.min(rphiz[..., 2])
@@ -187,7 +202,7 @@ def cylindrical_grid_for_equilibrium(
         ),
         axis=-1,
     )
-    value_toroidal = jnp.concatenate([rho_theta_phi[..., :1], Bxyz[..., :]], axis=-1)
+    value_toroidal = jnp.concatenate([rho_theta_phi[..., :1], Bcyl], axis=-1)
     rhoBxyz_cylindrical = interpolate_toroidal_to_cylindrical_grid(
         rphiz_toroidal=rphiz,
         rz_cylindrical=rz_cylindrical,
@@ -208,30 +223,40 @@ def cylindrical_grid_for_equilibrium(
 
 def build_magnetic_field_interpolator(
     magnetic_configuration: MagneticConfiguration,
-) -> interpax.Interpolator3D:
+) -> interpax.Interpolator3D | interpax.Interpolator2D:
     """Build a magnetic field interpolator from the magnetic configuration.
 
-    Returns an interpax.Interpolator3D that interpolates the magnetic field in
-    cylindrical coordinates (r, phi, z) on the fundamental domain [0, π/nfp].
+    For stellarators, returns an interpax.Interpolator3D that interpolates
+    (B_R, B_phi, B_Z) in cylindrical coordinates (R, phi, Z) on the
+    fundamental domain [0, pi/nfp].
 
-    Note: The caller must handle:
-    - Cartesian to cylindrical coordinate conversion
-    - Stellarator symmetry mapping using _map_to_fundamental_domain()
-    - Field symmetry transformation using _apply_B_stellarator_symmetry()
+    For axisymmetric equilibria, returns an interpax.Interpolator2D that
+    interpolates (B_R, B_phi, B_Z) as a function of (R, Z).
     """
-    if not magnetic_configuration.stellarator_symmetric:
+    if magnetic_configuration.is_axisymmetric:
+        B_cyl = magnetic_configuration.magnetic_field
+        rphiz = magnetic_configuration.rphiz
+        return interpax.Interpolator2D(
+            x=rphiz[:, 0, 0, 0],
+            y=rphiz[0, 0, :, 2],
+            f=jnp.nan_to_num(B_cyl[:, 0, :, :], nan=0.0),
+            method="linear",
+            extrap=0.0,
+        )
+
+    if not magnetic_configuration.is_stellarator_symmetric:
         raise NotImplementedError(
             "Non stellarator-symmetric equilibria not yet supported"
         )
 
-    Bxyz = magnetic_configuration.magnetic_field
+    B_cyl = magnetic_configuration.magnetic_field
     rphiz = magnetic_configuration.rphiz
 
     return interpax.Interpolator3D(
         x=rphiz[:, 0, 0, 0],
         y=rphiz[0, :, 0, 1],
         z=rphiz[0, 0, :, 2],
-        f=jnp.nan_to_num(Bxyz, nan=0.0),
+        f=jnp.nan_to_num(B_cyl, nan=0.0),
         method="linear",
         extrap=0.0,
     )
@@ -239,23 +264,27 @@ def build_magnetic_field_interpolator(
 
 def build_rho_interpolator(
     magnetic_configuration: MagneticConfiguration,
-) -> interpax.Interpolator3D:
+) -> interpax.Interpolator3D | interpax.Interpolator2D:
     """Build rho interpolator for the given magnetic configuration.
 
-    Returns an interpax.Interpolator3D that interpolates rho in cylindrical
-    coordinates (r, phi, z) on the fundamental domain [0, π/nfp].
+    For stellarators, returns an interpax.Interpolator3D that interpolates rho
+    in cylindrical coordinates (R, phi, Z) on the fundamental domain [0, pi/nfp].
 
-    Note: The caller must handle:
-    - Cartesian to cylindrical coordinate conversion
-    - Stellarator symmetry mapping using _map_to_fundamental_domain()
-
-    Args:
-        magnetic_configuration: The magnetic configuration.
-
-    Returns:
-        An interpax.Interpolator3D object.
+    For axisymmetric equilibria, returns an interpax.Interpolator2D that
+    interpolates rho as a function of (R, Z).
     """
-    if not magnetic_configuration.stellarator_symmetric:
+    if magnetic_configuration.is_axisymmetric:
+        rho = magnetic_configuration.rho
+        rphiz = magnetic_configuration.rphiz
+        return interpax.Interpolator2D(
+            x=rphiz[:, 0, 0, 0],
+            y=rphiz[0, 0, :, 2],
+            f=jnp.nan_to_num(rho[:, 0, :], nan=1.1),
+            method="linear",
+            extrap=1.1,
+        )
+
+    if not magnetic_configuration.is_stellarator_symmetric:
         raise NotImplementedError(
             "Non stellarator-symmetric equilibria not yet supported"
         )
@@ -315,7 +344,7 @@ def build_radial_interpolators(
     magnetic_configuration: MagneticConfiguration,
     radial_profiles: RadialProfiles,
 ) -> tuple[
-    interpax.Interpolator3D,
+    interpax.Interpolator3D | interpax.Interpolator2D,
     interpax.Interpolator1D,
     interpax.Interpolator1D,
 ]:

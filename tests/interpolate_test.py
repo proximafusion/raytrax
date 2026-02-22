@@ -13,10 +13,14 @@ from raytrax.interpolate import (
     cylindrical_grid_for_equilibrium,
     interpolate_toroidal_to_cylindrical_grid,
 )
-from raytrax.solver import _map_to_fundamental_domain, _apply_B_stellarator_symmetry
+from raytrax.solver import (
+    _map_to_fundamental_domain,
+    _apply_B_stellarator_symmetry,
+    _cylindrical_to_cartesian_B,
+)
 from raytrax.types import RadialProfiles
 
-from .fixtures import torus_wout, w7x_wout
+from .fixtures import tokamak_magnetic_configuration, torus_wout, w7x_wout
 
 
 def _make_B_callable(B_interp, nfp):
@@ -27,8 +31,9 @@ def _make_B_callable(B_interp, nfp):
         phi = jnp.arctan2(position[1], position[0])
         z = position[2]
         phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
-        B_grid = B_interp(r, phi_mapped, z_query)
-        return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
+        B_cyl = B_interp(r, phi_mapped, z_query)
+        B_cyl = _apply_B_stellarator_symmetry(B_cyl, in_second_half)
+        return _cylindrical_to_cartesian_B(B_cyl, phi)
 
     return wrapper
 
@@ -535,3 +540,148 @@ def test_extrapolation_in_cylindrical_grid(w7x_wout):
     assert (
         max_jump < 1.0
     ), f"B field has too large jump: {max_jump:.3f} T (indicates bad extrapolation)"
+
+
+# --- Axisymmetric (tokamak) tests ---
+
+# Fixture parameters (must match tokamak_magnetic_configuration fixture)
+_TOKAMAK_R0 = 3.0
+_TOKAMAK_A = 1.0
+_TOKAMAK_B0 = 2.5
+
+_DUMMY_RADIAL_PROFILES = RadialProfiles(
+    rho=jnp.linspace(0, 1, 50),
+    electron_density=jnp.ones(50),
+    electron_temperature=jnp.ones(50),
+)
+
+
+def _make_tokamak_interpolators(mc):
+    """Build Interpolators from an axisymmetric MagneticConfiguration."""
+    from raytrax.types import Interpolators
+
+    return Interpolators(
+        magnetic_field=build_magnetic_field_interpolator(mc),
+        rho=build_rho_interpolator(mc),
+        electron_density=build_electron_density_profile_interpolator(
+            _DUMMY_RADIAL_PROFILES
+        ),
+        electron_temperature=build_electron_temperature_profile_interpolator(
+            _DUMMY_RADIAL_PROFILES
+        ),
+        is_axisymmetric=True,
+    )
+
+
+def test_axisymmetric_magnetic_field_interpolator(tokamak_magnetic_configuration):
+    """Test 2D B field interpolator for an analytic tokamak (B_phi = B0*R0/R)."""
+    B_interp = build_magnetic_field_interpolator(tokamak_magnetic_configuration)
+
+    # Query at the magnetic axis (R=R0, Z=0)
+    B_cyl = B_interp(_TOKAMAK_R0, 0.0)
+    assert jnp.allclose(B_cyl[0], 0.0, atol=1e-10), "B_R should be zero"
+    assert jnp.allclose(B_cyl[1], _TOKAMAK_B0, rtol=1e-3)
+    assert jnp.allclose(B_cyl[2], 0.0, atol=1e-10), "B_Z should be zero"
+
+    # Query at R = R0 + 0.5 (outboard side): B_phi = B0 * R0 / (R0 + 0.5)
+    R_test = _TOKAMAK_R0 + 0.5
+    B_cyl = B_interp(R_test, 0.0)
+    expected = _TOKAMAK_B0 * _TOKAMAK_R0 / R_test
+    assert jnp.allclose(B_cyl[1], expected, rtol=1e-2)
+
+
+def test_axisymmetric_rho_interpolator(tokamak_magnetic_configuration):
+    """Test 2D rho interpolator for an analytic tokamak."""
+    rho_interp = build_rho_interpolator(tokamak_magnetic_configuration)
+
+    # On the magnetic axis: rho = 0
+    assert jnp.allclose(rho_interp(_TOKAMAK_R0, 0.0), 0.0, atol=0.05)
+
+    # At the boundary (R = R0 + a, Z = 0): rho = 1
+    assert jnp.allclose(rho_interp(_TOKAMAK_R0 + _TOKAMAK_A, 0.0), 1.0, atol=0.05)
+
+    # At (R = R0, Z = 0.5*a): rho = 0.5
+    assert jnp.allclose(rho_interp(_TOKAMAK_R0, 0.5 * _TOKAMAK_A), 0.5, atol=0.05)
+
+
+def test_axisymmetric_eval_magnetic_field(tokamak_magnetic_configuration):
+    """Test _eval_magnetic_field with axisymmetric interpolators."""
+    from raytrax.solver import _eval_magnetic_field
+
+    interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
+
+    # At phi=0, B should point in the y-direction (B_phi at phi=0 -> B_y)
+    pos_phi0 = jnp.array([_TOKAMAK_R0, 0.0, 0.0])
+    B = _eval_magnetic_field(pos_phi0, interpolators, nfp=1)
+    assert jnp.allclose(B[0], 0.0, atol=1e-3), f"B_x should be ~0, got {B[0]}"
+    assert jnp.allclose(B[1], _TOKAMAK_B0, rtol=1e-2), f"B_y should be ~B0, got {B[1]}"
+    assert jnp.allclose(B[2], 0.0, atol=1e-3), f"B_z should be ~0, got {B[2]}"
+
+    # At phi=pi/2, B should point in the -x direction (B_phi at phi=pi/2 -> -B_x)
+    pos_phi90 = jnp.array([0.0, _TOKAMAK_R0, 0.0])
+    B = _eval_magnetic_field(pos_phi90, interpolators, nfp=1)
+    assert jnp.allclose(
+        B[0], -_TOKAMAK_B0, rtol=1e-2
+    ), f"B_x should be ~-B0, got {B[0]}"
+    assert jnp.allclose(B[1], 0.0, atol=1e-3), f"B_y should be ~0, got {B[1]}"
+
+    # |B| should be the same at any toroidal angle for same R
+    assert jnp.allclose(
+        jnp.linalg.norm(B), _TOKAMAK_B0, rtol=1e-2
+    ), "|B| should be B0 at the magnetic axis"
+
+
+def test_axisymmetric_eval_rho(tokamak_magnetic_configuration):
+    """Test _eval_rho with axisymmetric interpolators."""
+    from raytrax.solver import _eval_rho
+
+    interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
+
+    # rho should be the same at all toroidal angles for same (R, Z)
+    for phi in [0.0, 1.0, jnp.pi, 5.0]:
+        pos = jnp.array([_TOKAMAK_R0 * jnp.cos(phi), _TOKAMAK_R0 * jnp.sin(phi), 0.0])
+        rho_val = _eval_rho(pos, interpolators, nfp=1)
+        assert jnp.allclose(
+            rho_val, 0.0, atol=0.05
+        ), f"rho at axis should be ~0, got {rho_val} at phi={phi}"
+
+    # At outboard midplane
+    pos_out = jnp.array([_TOKAMAK_R0 + 0.5 * _TOKAMAK_A, 0.0, 0.0])
+    rho_out = _eval_rho(pos_out, interpolators, nfp=1)
+    assert jnp.allclose(rho_out, 0.5, atol=0.05)
+
+
+def test_axisymmetric_jit_and_vmap(tokamak_magnetic_configuration):
+    """Test that axisymmetric interpolators work with jit and vmap."""
+    from raytrax.solver import _eval_magnetic_field, _eval_rho
+
+    interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
+
+    # JIT
+    eval_B_jit = jax.jit(lambda pos: _eval_magnetic_field(pos, interpolators, nfp=1))
+    eval_rho_jit = jax.jit(lambda pos: _eval_rho(pos, interpolators, nfp=1))
+
+    pos = jnp.array([_TOKAMAK_R0, 0.0, 0.0])
+    B = eval_B_jit(pos)
+    assert B.shape == (3,)
+    assert jnp.all(jnp.isfinite(B))
+
+    rho = eval_rho_jit(pos)
+    assert rho.shape == ()
+    assert jnp.isfinite(rho)
+
+    # vmap over multiple positions
+    positions = jnp.array(
+        [
+            [_TOKAMAK_R0, 0.0, 0.0],
+            [0.0, _TOKAMAK_R0, 0.0],
+            [_TOKAMAK_R0 + 0.3, 0.0, 0.2],
+        ]
+    )
+    B_all = jax.vmap(eval_B_jit)(positions)
+    assert B_all.shape == (3, 3)
+    assert jnp.all(jnp.isfinite(B_all))
+
+    rho_all = jax.vmap(eval_rho_jit)(positions)
+    assert rho_all.shape == (3,)
+    assert jnp.all(jnp.isfinite(rho_all))

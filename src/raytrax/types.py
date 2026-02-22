@@ -192,11 +192,11 @@ class Interpolators:
     pytree-compatible object passed through JIT as one argument.
     """
 
-    magnetic_field: interpax.Interpolator3D
-    """Interpolator for B(r, phi, z) on the fundamental domain."""
+    magnetic_field: interpax.Interpolator3D | interpax.Interpolator2D
+    """Interpolator for B field. 3D (R, phi, Z) for stellarators, 2D (R, Z) for tokamaks."""
 
-    rho: interpax.Interpolator3D
-    """Interpolator for rho(r, phi, z) on the fundamental domain."""
+    rho: interpax.Interpolator3D | interpax.Interpolator2D
+    """Interpolator for rho. 3D (R, phi, Z) for stellarators, 2D (R, Z) for tokamaks."""
 
     electron_density: interpax.Interpolator1D
     """Interpolator for ne(rho)."""
@@ -204,18 +204,22 @@ class Interpolators:
     electron_temperature: interpax.Interpolator1D
     """Interpolator for Te(rho)."""
 
+    is_axisymmetric: bool = False
+    """Whether the equilibrium is axisymmetric (tokamak). Stored in pytree aux_data."""
+
 
 jax.tree_util.register_pytree_node(
     Interpolators,
     lambda i: (
         (i.magnetic_field, i.rho, i.electron_density, i.electron_temperature),
-        None,
+        (i.is_axisymmetric,),
     ),
-    lambda _, children: Interpolators(
+    lambda aux, children: Interpolators(
         magnetic_field=children[0],
         rho=children[1],
         electron_density=children[2],
         electron_temperature=children[3],
+        is_axisymmetric=aux[0],
     ),
 )
 

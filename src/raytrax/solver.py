@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import diffrax
 import interpax
@@ -44,40 +44,39 @@ def _map_to_fundamental_domain(
 
 
 def _apply_B_stellarator_symmetry(
-    B_grid: jt.Float[jax.Array, "3"],
-    phi_mapped: jt.Float[jax.Array, ""],
-    phi: jt.Float[jax.Array, ""],
+    B_cyl: jt.Float[jax.Array, "3"],
     in_second_half: jt.Bool[jax.Array, ""],
 ) -> jt.Float[jax.Array, "3"]:
-    """Apply stellarator symmetry transformation to a Cartesian B field vector.
+    """Apply stellarator symmetry to cylindrical B field components.
 
     When phi is in the second half of a field period, the grid was queried at the
-    mirror point (phi_mapped, -z). This function applies the correct physical
-    transformation to recover B at the actual query point (phi, z).
-
-    Under stellarator symmetry, B_R is odd (changes sign) while B_phi and B_Z
-    are even (unchanged) when reflecting across the period boundary.
+    mirror point (phi_mapped, -z). Under stellarator symmetry, B_R is odd
+    (changes sign) while B_phi and B_Z are even (unchanged).
 
     Args:
-        B_grid: Cartesian B vector from the grid at the mirror point
-        phi_mapped: The mapped phi used for the grid lookup
-        phi: The actual toroidal angle of the query point
+        B_cyl: Cylindrical (B_R, B_phi, B_Z) from the grid at the mirror point
         in_second_half: Whether the query phi is in the second half of a field period
 
     Returns:
-        Cartesian B vector at the actual query position
+        Cylindrical (B_R, B_phi, B_Z) with symmetry applied
     """
-    cp_m = jnp.cos(phi_mapped)
-    sp_m = jnp.sin(phi_mapped)
-    BR_m = B_grid[0] * cp_m + B_grid[1] * sp_m
-    Bphi_m = -B_grid[0] * sp_m + B_grid[1] * cp_m
-    BZ_m = B_grid[2]
-    # B_R is odd under the symmetry (changes sign), B_phi and B_Z are even
     sign = jnp.where(in_second_half, -1.0, 1.0)
-    BR_q = sign * BR_m
-    cp_q = jnp.cos(phi)
-    sp_q = jnp.sin(phi)
-    return jnp.stack([BR_q * cp_q - Bphi_m * sp_q, BR_q * sp_q + Bphi_m * cp_q, BZ_m])
+    return jnp.stack([sign * B_cyl[0], B_cyl[1], B_cyl[2]])
+
+
+def _cylindrical_to_cartesian_B(
+    B_cyl: jt.Float[jax.Array, "3"],
+    phi: jt.Float[jax.Array, ""],
+) -> jt.Float[jax.Array, "3"]:
+    """Rotate cylindrical (B_R, B_phi, B_Z) to Cartesian (B_x, B_y, B_z)."""
+    cp, sp = jnp.cos(phi), jnp.sin(phi)
+    return jnp.stack(
+        [
+            B_cyl[0] * cp - B_cyl[1] * sp,
+            B_cyl[0] * sp + B_cyl[1] * cp,
+            B_cyl[2],
+        ]
+    )
 
 
 def _eval_magnetic_field(
@@ -85,13 +84,19 @@ def _eval_magnetic_field(
     interpolators: Interpolators,
     nfp: int,
 ) -> jt.Float[jax.Array, "3"]:
-    """Evaluate B field at a Cartesian position, applying stellarator symmetry."""
+    """Evaluate B field at a Cartesian position."""
     r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
     phi = jnp.arctan2(position[1], position[0])
     z = position[2]
-    phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
-    B_grid = interpolators.magnetic_field(r, phi_mapped, z_query)
-    return _apply_B_stellarator_symmetry(B_grid, phi_mapped, phi, in_second_half)
+    if interpolators.is_axisymmetric:
+        B_interp_2d = cast(interpax.Interpolator2D, interpolators.magnetic_field)
+        B_cyl = B_interp_2d(r, z)
+    else:
+        phi_mapped, z_query, in_second_half = _map_to_fundamental_domain(phi, z, nfp)
+        B_interp_3d = cast(interpax.Interpolator3D, interpolators.magnetic_field)
+        B_cyl = B_interp_3d(r, phi_mapped, z_query)
+        B_cyl = _apply_B_stellarator_symmetry(B_cyl, in_second_half)
+    return _cylindrical_to_cartesian_B(B_cyl, phi)
 
 
 def _eval_rho(
@@ -101,10 +106,14 @@ def _eval_rho(
 ) -> jt.Float[jax.Array, ""]:
     """Evaluate the normalized effective radius at a Cartesian position."""
     r = jnp.sqrt(position[0] ** 2 + position[1] ** 2)
-    phi = jnp.arctan2(position[1], position[0])
     z = position[2]
+    if interpolators.is_axisymmetric:
+        rho_interp_2d = cast(interpax.Interpolator2D, interpolators.rho)
+        return rho_interp_2d(r, z)
+    phi = jnp.arctan2(position[1], position[0])
     phi_mapped, z_query, _ = _map_to_fundamental_domain(phi, z, nfp)
-    return interpolators.rho(r, phi_mapped, z_query)
+    rho_interp_3d = cast(interpax.Interpolator3D, interpolators.rho)
+    return rho_interp_3d(r, phi_mapped, z_query)
 
 
 def _y_to_state(

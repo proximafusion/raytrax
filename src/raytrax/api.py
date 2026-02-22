@@ -45,6 +45,7 @@ def trace(
         electron_temperature=build_electron_temperature_profile_interpolator(
             radial_profiles
         ),
+        is_axisymmetric=magnetic_configuration.is_axisymmetric,
     )
 
     result = trace_jitted(
