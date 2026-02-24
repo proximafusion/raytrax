@@ -41,6 +41,9 @@ docs = [
   "zensical",
   "mkdocstrings-python",
 ]
+plot2d = [
+  "pyvista",
+]
 
 [project.urls]
 Homepage = "https://github.com/proximafusion/raytrax"

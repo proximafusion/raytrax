@@ -22,7 +22,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip wheel
           pip install pyvista vmecpp
-          pip install .[test]
+          pip install .[test,plot2d]
       - name: Static type check with mypy
         run: |
           mypy --install-types --non-interactive --ignore-missing-imports src/raytrax
