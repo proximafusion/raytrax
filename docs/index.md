@@ -4,10 +4,21 @@ icon: lucide/home
 
 # Raytrax
 
-An ECRH ray tracer based on JAX.
+Raytrax is a Pyhon library for the simulation of Electron Cyclotron Resonance Heating (ECRH) of fusion plasmas. Based on [JAX](https://docs.jax.dev), it features fast computation due to just-in-time (JIT) compilation and allows for automated differentation of its result, making it particularly suited for parameter optimization in fusion power plant design.
+
+Raytrax employs the geometric optics (or WKB) approximation for microwave rays and solves the ray tracing equations to determine the ray trajectory. The energy absorption that determines the heating deposition is calculated relativistically. The physics approach closely follows the Travis[^1] code.
+
+Raytrax is released under the MIT License.
+
+
+[^1]: Marushchenko, Nikolai B., Yu Turkin, and Henning Maaßberg. "Ray-tracing code TRAVIS for ECR heating, EC current drive and ECE diagnostic." Computer Physics Communications 185.1 (2014): 165-176.
+
+
 
 ---
 
-![](https://upload.wikimedia.org/wikipedia/commons/d/d3/Logo_Proxima_Fusion.svg){ width="200" align="left" }
+[![](https://upload.wikimedia.org/wikipedia/commons/d/d3/Logo_Proxima_Fusion.svg){ width="200" align="left" }](https://www.proximafusion.com)
 
-![](https://upload.wikimedia.org/wikipedia/de/1/1e/Hochschule_f%C3%BCr_angewandte_Wissenschaften_M%C3%BCnchen_logo.svg){width="150" align="right"}
+[![](https://upload.wikimedia.org/wikipedia/de/1/1e/Hochschule_f%C3%BCr_angewandte_Wissenschaften_M%C3%BCnchen_logo.svg){width="150" align="right"}](https://www.hm.edu)
+
+<div style="clear:both"></div>

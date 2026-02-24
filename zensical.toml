@@ -1,6 +1,7 @@
 [project]
 site_name = "Raytrax"
 site_url = "https://proximafusion.github.io/raytrax/"
+repo_url = "https://github.com/proximafusion/raytrax"
 docs_dir = "docs"
 nav = [
     {"Home" = "index.md"},
@@ -29,7 +30,7 @@ palette.accent = "teal"
 features = [
     "content.code.copy",
     "navigation.sections",
-    "navigation.footer"
+    "navigation.footer",
 ]
 
 [project.plugins.mkdocstrings.handlers.python]
@@ -42,6 +43,7 @@ show_source = true
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.attr_list]
+[project.markdown_extensions.footnotes]
 
 [project.markdown_extensions."pymdownx.highlight"]
 anchor_linenums = true
