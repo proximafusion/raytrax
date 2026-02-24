@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import jax.numpy as jnp
 
-from raytrax.plot import (
+from raytrax.plot.plot2d import (
     interpolate_rz_slice,
     plot_magnetic_field_rz,
     plot_electron_density_rz,
 )
 from raytrax.types import RadialProfiles
 
-from .fixtures import w7x_magnetic_configuration, w7x_wout
+from ..fixtures import w7x_magnetic_configuration, w7x_wout
 
 
 def test_interpolate_rz_slice_w7x(w7x_magnetic_configuration):

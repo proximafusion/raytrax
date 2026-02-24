@@ -6,8 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import RegularGridInterpolator
 
-from .equilibrium.interpolate import MagneticConfiguration
-from .types import RadialProfiles
+from raytrax.equilibrium.interpolate import MagneticConfiguration
+from raytrax.types import RadialProfiles
 
 RZSlice = namedtuple("RZSlice", ["R", "Z", "B", "rho"])
 
