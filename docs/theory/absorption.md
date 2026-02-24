@@ -25,7 +25,7 @@ $$\boldsymbol{\varepsilon}_{r}^A = \frac{1}{2i}(\boldsymbol{\varepsilon}_{r} - \
 
  the time-averaged power loss density (units W/m³) becomes
 
- $$Q= \left\langle\frac{\partial u}{\partial t}\right\rangle = \frac{\varepsilon_0 \omega}{2} (\hat{\boldsymbol{E}}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{\boldsymbol{E}})$$
+$$Q = \left\langle\frac{\partial u}{\partial t}\right\rangle = \frac{\varepsilon_0 \omega}{2} (\hat{\boldsymbol{E}}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{\boldsymbol{E}})$$
 
 ## Power Flux Density
 
