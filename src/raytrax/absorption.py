@@ -145,22 +145,19 @@ def absorption_coefficient(
         )
     # Absorption coefficient from Fidone et al., Phys. Fluids 1988:
     #   alpha = (omega/(8*pi)) * Xp * I / |S|
-    # where S is the Poynting flux and I is the resonance integral.
+    # where S is the Poynting flux and I is the resonance integral over d³u,
+    # with f normalized so that ∫ f d³u = 1.
     #
-    # We use the power flux F = 0.5 * dH/dN instead of the full Poynting flux
-    # S = (c/(16*pi)) * dH/dN, giving a factor of (c/(8*pi)) difference:
+    # Converting S -> power flux F = 0.5 * dH/dN via S = (c/(16*pi)) * dH/dN:
     #   alpha = omega*Xp/c * I / |F|
     #
-    # After accounting for Maxwellian distribution normalization, where the
-    # resonance integral I includes a factor of sqrt(2*pi/mu):
-    #   alpha = -omega*Xp*sqrt(mu/(2*pi))/c * resonance_integral / |F|
+    # TODO(dstraub): prefactor to be double-checked against literature
     #
     # The resonance_integral < 0 for absorption, giving alpha > 0.
 
     omega = 2 * jnp.pi * frequency
     Xp = (plasma_frequency / frequency) ** 2
-    mu = 2 / thermal_velocity**2
-    prefactor = -omega * Xp * jnp.sqrt(mu / (2 * jnp.pi)) / speed_of_light
+    prefactor = -omega * Xp / speed_of_light * 4 * jnp.pi**2
 
     # Avoid division by zero or NaN when power flux is very small or invalid (near cutoff)
     power_flux_magnitude = jnp.linalg.norm(power_flux_vector)
