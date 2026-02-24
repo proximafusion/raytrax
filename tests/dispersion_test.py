@@ -65,14 +65,14 @@ def test_dispersion_tensor_stix():
 
     assert dispersion_tensor.shape == (3, 3)
 
-    # compare the vectorial form of the equation
-    # D_{ij} = N^2 \delta_{ij} - N_i N_j - \epsilon_{ij}
+    # compare the vectorial form of the equation (Stix convention)
+    # D_{ij} = \epsilon_{ij} - N^2 \delta_{ij} + N_i N_j
     # to the one implemented in the tested function
     N = jnp.array(
         [refractive_index_perp, 0, refractive_index_para], dtype=jax.numpy.complex128
     )
     nn = jnp.eye(3) * jnp.linalg.norm(N) ** 2 - jnp.einsum("i,j->ij", N, N)
-    expected_dispersion_tensor = nn - dielectric_tensor
+    expected_dispersion_tensor = dielectric_tensor - nn
 
     np.testing.assert_allclose(
         dispersion_tensor,

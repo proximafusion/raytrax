@@ -80,10 +80,10 @@ def dispersion_tensor_stix(
 ) -> jt.Complex[jax.Array, "3 3"]:
     r"""Computes the dispersion tensor in Stix coordinates.
 
-    The dispersion tensor is defined as:
+    The dispersion tensor is defined as (Stix convention):
 
     .. math::
-        D_{ij} = N^2 \delta_{ij} - N_i N_j - \epsilon_{ij}
+        D_{ij} = \epsilon_{ij} - N^2 \delta_{ij} + N_i N_j
 
     The refractive index has the following form in Stix coordinates:
 
@@ -103,9 +103,9 @@ def dispersion_tensor_stix(
     n1 = refractive_index_perp
     n3 = refractive_index_para
 
-    # N^2 delta_ij - Ni Nj
+    # N^2 delta_ij - Ni Nj  (note: we compute dielectric_tensor - nn = eps - N^2 I + NN)
     nn = jnp.array(
         [[n3**2, 0, -n1 * n3], [0, n1**2 + n3**2, 0], [-n1 * n3, 0, n1**2]],
         dtype=jnp.complex128,
     )
-    return nn - dielectric_tensor
+    return dielectric_tensor - nn

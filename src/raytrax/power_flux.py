@@ -14,19 +14,23 @@ def power_flux_vector_stix(
 ) -> jt.Float[jax.Array, "3"]:
     r"""Compute the dielectric power flux vector in Stix coordinates.
 
-    The corrected dielectric wave energy flux vector is given by:
+    In SI units (with Stix convention :math:`D = \varepsilon - N^2 I + NN`), the
+    time-averaged Poynting vector is (see absorption.md):
 
     .. math::
-        \mathbf{S}=\frac{c}{16\pi} |A|^2 \frac{\partial}{\partial \mathbf{N}}\left( e_i^* D_{ij}^{H} e_j \right)
+        \langle\mathbf{S}\rangle = -\frac{\varepsilon_0\omega}{4}|A|^2
+            \frac{\partial}{\partial \mathbf{k}}\left( e_i^* D_{ij}^{H} e_j \right)
 
-    (See Tokman, Westerhof, and Gavrilova,
-    https://dx.doi.org/10.1088/0741-3335/42/2/302)
-
-    This function computes a vector that is equal to this expression up to
-    normalization, namely
+    With :math:`\partial/\partial k = (c/\omega)\,\partial/\partial N`, this becomes
+    :math:`\langle S\rangle = (\varepsilon_0 c / 2)|A|^2 \mathbf{F}` where
 
     .. math::
-        \mathbf{F} = \frac{1}{2} \frac{\partial}{\partial \mathbf{N}} \left( e_i^* D_{ij}^{H} e_j \right)
+        \mathbf{F} = -\frac{1}{2} \frac{\partial}{\partial \mathbf{N}}
+            \left( e_i^* D_{ij}^{H} e_j \right)
+
+    The minus sign ensures :math:`\mathbf{F}` points along the physical group velocity
+    (for Stix convention :math:`\partial H_\mathrm{Stix}/\partial N` points opposite to
+    the group velocity). The absorption coefficient uses only :math:`|\mathbf{F}|`.
     """
     refractive_index = jnp.array(
         [
@@ -36,7 +40,7 @@ def power_flux_vector_stix(
         ],
         dtype=jnp.float64,
     )
-    return 0.5 * power_flux_hamiltonian_gradient_n(
+    return -0.5 * power_flux_hamiltonian_gradient_n(
         refractive_index,
         dielectric_tensor=dielectric_tensor,
         polarization_vector=polarization_vector,
