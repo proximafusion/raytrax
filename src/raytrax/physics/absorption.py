@@ -231,6 +231,12 @@ def compute_resonance_integral(
     resonance_in_bulk = jnp.minimum(jnp.abs(u_min), jnp.abs(u_max)) < u_cutoff
 
     def compute_integral():
+        # K2_scaled = kve(2, mu) depends only on thermal_velocity, which is
+        # constant across all 1000 vmap iterations.  Pre-compute it here so
+        # it is evaluated exactly once rather than once per grid point.
+        mu = 2 / thermal_velocity**2
+        K2_scaled = bessel.kve_jax(2, mu)
+
         # Define grid in u_para
         u_grid = jnp.linspace(u_min, u_max, 1000)
 
@@ -244,6 +250,7 @@ def compute_resonance_integral(
                 refractive_index_perp=refractive_index_perp,
                 parallel_momentum=u,
                 thermal_velocity=thermal_velocity,
+                K2_scaled=K2_scaled,
                 polarization_vector=polarization_vector,
             )
         )(u_grid)
@@ -261,6 +268,7 @@ def resonance_integrand(
     refractive_index_perp: ScalarFloat,
     parallel_momentum: ScalarFloat,
     thermal_velocity: ScalarFloat,
+    K2_scaled: ScalarFloat,
     polarization_vector: jt.Complex[jax.Array, "3"],
 ) -> ScalarFloat:
     """Compute the integrand of the resonance integral.
@@ -273,6 +281,7 @@ def resonance_integrand(
         refractive_index_perp: Refractive index perpendicular to the magnetic field.
         parallel_momentum: Normalized parallel momentum (p_para / (m_0 c)).
         thermal_velocity: Normalized electron thermal velocity (v_th / c).
+        K2_scaled: Pre-computed kve(2, mu) = K_2(mu) * exp(mu), where mu = 2/v_th^2.
         polarization_vector: Normalized polarization vector in Stix coordinates.
     """
     # Fix the Lorentz factor from the resonance condition
@@ -295,6 +304,7 @@ def resonance_integrand(
             parallel_momentum=parallel_momentum,
             lorentz_factor=lorentz_factor,
             thermal_velocity=thermal_velocity,
+            K2_scaled=K2_scaled,
             polarization_vector=polarization_vector,
         ),
     )
@@ -309,6 +319,7 @@ def _resonance_integrand_full(
     parallel_momentum: ScalarFloat,
     lorentz_factor: ScalarFloat,
     thermal_velocity: ScalarFloat,
+    K2_scaled: ScalarFloat,
     polarization_vector: jt.Complex[jax.Array, "3"],
 ) -> ScalarFloat:
     """Compute the resonance integrand in the case where it does not vanish.
@@ -327,8 +338,8 @@ def _resonance_integrand_full(
         polarization_vector=polarization_vector,
     )
     # FIXME hard-coded Maxwellian for now
-    df_dgamma = distribution_function.maxwell_juettner_distribution_dgamma(
-        lorentz_factor, thermal_velocity=thermal_velocity
+    df_dgamma = distribution_function.maxwell_juettner_distribution_dgamma_precomputed(
+        lorentz_factor, thermal_velocity=thermal_velocity, K2_scaled=K2_scaled
     )
     # Fidone operator: Lf = df/dw + N_par * df/dq_par|_w
     # For an isotropic Maxwellian f(gamma), df/dq_par|_w = 0 (energy is constant),
