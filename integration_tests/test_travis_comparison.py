@@ -119,14 +119,24 @@ def raytrax_result():
 
 @pytest.fixture(scope="module")
 def comparison(raytrax_result, travis_reference):
-    """Interpolate TRAVIS data onto raytrax arc lengths and compute errors."""
+    """Interpolate TRAVIS data onto raytrax arc lengths and compute errors.
+
+    Both raytrax and TRAVIS arc lengths start at 0 at the antenna, so they
+    can be used directly for alignment.  Only strictly inside-plasma points
+    (rho < 1 in both traces) are used for the per-point metrics; this excludes
+    the TRAVIS sentinel row (rho=10) and vacuum steps saved by raytrax before
+    plasma entry.
+    """
     tr = travis_reference
     rx = raytrax_result.beam_profile
 
     s_rx = np.asarray(rx.arc_length)
     s_tr = np.asarray(tr.arc_length_m)
 
-    # Overlapping region
+    pos_rx_all = np.asarray(rx.position)
+    pos_tr_all = np.asarray(tr.position_m)
+
+    # Overlapping region in arc length
     s_min = max(s_rx[0], s_tr[0])
     s_max = min(s_rx[-1], s_tr[-1])
     mask = (s_rx >= s_min) & (s_rx <= s_max)
@@ -143,7 +153,7 @@ def comparison(raytrax_result, travis_reference):
             **kw,
         )(s_overlap)
 
-    pos_tr = _interp(np.asarray(tr.position_m), axis=0)
+    pos_tr = _interp(pos_tr_all, axis=0)
     B_tr = _interp(np.asarray(tr.magnetic_field_magnitude_T))
     rho_tr = _interp(np.asarray(tr.rho))
 
@@ -154,7 +164,7 @@ def comparison(raytrax_result, travis_reference):
     te_tr = travis_profile(rho_tr, 5.0, *te_parm)
 
     # raytrax values in overlap
-    pos_rx = np.asarray(rx.position)[mask]
+    pos_rx = pos_rx_all[mask]
     B_rx = np.linalg.norm(np.asarray(rx.magnetic_field)[mask], axis=1)
     rho_rx = np.asarray(rx.normalized_effective_radius)[mask]
     ne_rx = np.asarray(rx.electron_density)[mask]
@@ -162,8 +172,9 @@ def comparison(raytrax_result, travis_reference):
     tau_rx = np.asarray(rx.optical_depth)[-1]
     tau_tr = float(np.asarray(tr.optical_depth)[-1])
 
-    # Exclude sentinel points (antenna start: rho=NaN, B=0) from per-point metrics
-    valid = ~np.isnan(rho_rx) & (B_tr > 0)
+    # Restrict to strictly inside-plasma points.  The TRAVIS sentinel (index 0)
+    # has rho=10; vacuum steps saved by raytrax before plasma entry have rho>1.
+    valid = ~np.isnan(rho_rx) & (rho_tr < 1.0) & (rho_rx < 1.0)
 
     # Compute metrics
     pos_rms_mm = (
