@@ -2,7 +2,7 @@
 icon: lucide/home
 ---
 
-# Raytrax
+# Raytrax: ECRH ray tracing in JAX
 
 Raytrax is a Python library for the simulation of Electron Cyclotron Resonance Heating (ECRH) of fusion plasmas. Based on [JAX](https://docs.jax.dev), it features fast computation due to just-in-time (JIT) compilation and allows for automated differentation of its result, making it particularly suited for parameter optimization in fusion power plant design.
 

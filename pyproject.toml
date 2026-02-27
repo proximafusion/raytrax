@@ -41,7 +41,7 @@ docs = [
   "zensical",
   "mkdocstrings-python",
 ]
-plot2d = [
+plot3d = [
   "pyvista",
 ]
 
