@@ -162,8 +162,8 @@ class TraceResult:
     beam_profile: BeamProfile
     """The traced beam profile."""
 
-    radial_profile: RadialProfile | None
-    """The radial deposition profile. None when trim=False."""
+    radial_profile: RadialProfile
+    """The radial deposition profile."""
 
 
 @dataclass

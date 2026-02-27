@@ -101,87 +101,86 @@ def test_trace_w7x_beam(w7x_wout):
 
 def test_bin_power_deposition():
     """Test the _bin_power_deposition helper function."""
-    # Create a regular rho grid
     rho_grid = jnp.linspace(0.0, 1.0, 11)  # 11 points: 0.0, 0.1, ..., 1.0
-
-    # Mock dV/drho (increasing volume with rho)
     dvolume_drho = jnp.linspace(1.0, 2.0, 11)
 
-    # Create a non-monotonic trajectory that crosses same rho values multiple times
-    # Simulates beam entering plasma (0.9 → 0.3), then exiting (0.3 → 0.7)
+    # Non-monotonic trajectory: enters at rho=0.9, reaches rho=0.3, exits to rho=0.8.
+    # Crosses rho≈0.5 twice.
     rho_trajectory = jnp.array([0.9, 0.7, 0.5, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-    arc_length = jnp.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-    linear_power_density = jnp.ones(9) * 10.0  # Constant 10 W/m
+    optical_depth = jnp.linspace(0.0, 2.0, 9)  # tau: 0 → 2 along trajectory
+    arc_length = jnp.linspace(0.0, 1.0, 9)
 
-    # Bin the power
     result = _bin_power_deposition(
-        rho_grid, dvolume_drho, rho_trajectory, arc_length, linear_power_density
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
     )
 
-    # Check output shape matches rho_grid
     assert result.shape == rho_grid.shape
-
-    # Check that result contains no NaN/inf values
     assert jnp.all(jnp.isfinite(result))
+    assert result[5] > 0  # rho=0.5 bin should have deposited power
 
-    # Check that rho=0.5 bin receives contributions from TWO segments
-    # (crossing rho=0.5 twice means power is summed, not averaged)
-    assert result[5] > 0  # Should have deposited power
-
-    # Total power = sum(dP/dV * dV); dV uses the same Voronoi edges as the function
+    # Power conservation: sum(dP/dV * dV) = exp(-tau[0]) - exp(-tau[-1])
     edges = jnp.concatenate(
         [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
     )
     total_deposited = jnp.sum(result * dvolume_drho * jnp.diff(edges))
-    expected_total = 10.0 * 0.8  # 10 W/m * 0.8 m = 8 W
-    np.testing.assert_allclose(total_deposited, expected_total, rtol=0.05)
+    expected_total = float(jnp.exp(-optical_depth[0]) - jnp.exp(-optical_depth[-1]))
+    np.testing.assert_allclose(total_deposited, expected_total, rtol=1e-5)
 
 
 def test_bin_power_deposition_power_conservation():
-    """Total deposited power must equal integral of dP/ds to within numerical precision.
-
-    With fine-grid upsampling, conservation is tight (rtol~1e-3), not just
-    order-of-magnitude as with coarse histograms.
-    """
+    """Total deposited power equals exp(-tau_0) - exp(-tau_final) exactly."""
     rho_grid = jnp.linspace(0.0, 1.0, 200)
-    dvolume_drho = jnp.ones(200)  # dV/drho = 1 → dV = drho, simplifies check
+    dvolume_drho = jnp.ones(200)
 
-    # Monotone trajectory: ray enters at rho=0.9 and passes through to rho=0.1
+    # Monotone trajectory: enters at rho=0.9, exits at rho=0.1
     rho_trajectory = jnp.linspace(0.9, 0.1, 20)
+    optical_depth = jnp.linspace(0.0, 3.0, 20)  # tau_final = 3
     arc_length = jnp.linspace(0.0, 1.0, 20)
-    linear_power_density = jnp.ones(20) * 5.0  # 5 W/m, constant
 
     result = _bin_power_deposition(
-        rho_grid, dvolume_drho, rho_trajectory, arc_length, linear_power_density
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
     )
 
     assert result.shape == rho_grid.shape
 
-    # No bin along the traversed rho range [0.1, 0.9] should be zero
     traversed = (rho_grid >= 0.1) & (rho_grid <= 0.9)
     assert jnp.all(
         result[traversed] > 0
     ), "Bins along trajectory path should be populated"
 
-    # Power conservation: sum(dP/dV * dV) = 5 W/m * 1 m = 5 W
     edges = jnp.concatenate(
         [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
     )
     total_deposited = jnp.sum(result * dvolume_drho * jnp.diff(edges))
-    np.testing.assert_allclose(total_deposited, 5.0, rtol=1e-3)
+    expected_total = 1.0 - float(jnp.exp(-optical_depth[-1]))  # 1 - exp(-3)
+    np.testing.assert_allclose(total_deposited, expected_total, rtol=1e-5)
 
 
-def test_bin_power_with_nan_values():
-    """Test that _bin_power_deposition does not crash with NaN/inf in trajectory."""
+def test_bin_power_with_padded_zeros():
+    """Padded entries (optical_depth=inf after trajectory end) contribute zero power."""
     rho_grid = jnp.linspace(0.0, 1.0, 11)
     dvolume_drho = jnp.ones(11)
 
-    # Trajectory with some NaN values
-    rho_trajectory = jnp.array([0.5, jnp.nan, 0.7, 0.5, jnp.inf])
-    arc_length = jnp.array([0.0, 0.1, 0.2, 0.3, 0.4])
-    linear_power_density = jnp.array([2.0, 3.0, 4.0, jnp.nan, 5.0])
+    # 5 valid points followed by 5 inf-padded slots (diffrax fills unused slots with inf)
+    rho_valid = jnp.array([0.8, 0.6, 0.4, 0.3, 0.5])
+    tau_valid = jnp.array([0.0, 0.5, 1.0, 1.5, 2.0])
+    s_valid = jnp.linspace(0.0, 1.0, 5)
+    rho_padded = jnp.zeros(5)
+    tau_padded = jnp.full(5, jnp.inf)  # diffrax fills unused sol.ys slots with inf
+    s_padded = jnp.full(5, jnp.inf)
 
-    result = _bin_power_deposition(
-        rho_grid, dvolume_drho, rho_trajectory, arc_length, linear_power_density
+    rho_trajectory = jnp.concatenate([rho_valid, rho_padded])
+    optical_depth = jnp.concatenate([tau_valid, tau_padded])
+    arc_length = jnp.concatenate([s_valid, s_padded])
+
+    result_padded = _bin_power_deposition(
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
     )
-    assert result.shape == rho_grid.shape
+    result_trimmed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_valid, rho_valid, tau_valid
+    )
+
+    assert result_padded.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_padded))
+    # Padded inf entries must not change the result
+    np.testing.assert_allclose(result_padded, result_trimmed, rtol=1e-5)
