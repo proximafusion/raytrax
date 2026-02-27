@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install system dependencies
-        run: sudo apt-get install -y libgl1-mesa-glx libegl1-mesa xvfb
+        run: sudo apt-get install -y libgl1 libegl1 xvfb
       - name: Install dependencies
         run: pip install ".[docs]"
       - name: Generate gallery
