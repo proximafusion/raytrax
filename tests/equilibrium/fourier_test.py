@@ -77,17 +77,23 @@ def test_dvolume_drho_torus(torus_wout):
 
     dv_drho = dvolume_drho(torus_wout, rho)
 
-    # Check shape and basic properties
     assert dv_drho.shape == rho.shape
     assert jnp.all(jnp.isfinite(dv_drho))
-    assert jnp.all(dv_drho > 0)  # Volume derivative should be positive
 
-    # For our test fixture, g_{0,0} varies linearly from 0.1 to 1.0
-    # so the interpolated values should be reasonable
-    expected_min = (2 * jnp.pi) ** 2 * 0.1
-    expected_max = (2 * jnp.pi) ** 2 * 1.0
-    assert jnp.all(dv_drho >= expected_min * 0.9)  # Allow some tolerance
-    assert jnp.all(dv_drho <= expected_max * 1.1)
+    # dV/dρ = (2π)² g₀₀ × 2ρ.  For a torus g₀₀ = R₀ r₀²/2 = 0.25 (constant),
+    # so dV/dρ = 2π² ρ exactly.
+    np.testing.assert_allclose(dv_drho, 2 * np.pi**2 * rho, rtol=1e-3)
+
+
+def test_dvolume_drho_torus_volume_integral(torus_wout):
+    """Integrating dV/dρ over [0, 1] must recover the exact torus volume."""
+    n_points = 1000
+    rho = jnp.linspace(0.0, 1.0, n_points)
+    dv_drho = dvolume_drho(torus_wout, rho)
+    total_volume = float(jnp.trapezoid(dv_drho, rho))
+    # Analytical: V = 2π² R₀ r₀² = 2π² × 2 × 0.25 = π²
+    expected = 2 * np.pi**2 * 2.0 * 0.5**2
+    np.testing.assert_allclose(total_volume, expected, rtol=1e-3)
 
 
 def test_dvolume_drho_w7x_integration(w7x_wout):
