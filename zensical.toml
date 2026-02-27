@@ -8,7 +8,8 @@ nav = [
     {"Usage" = [
         {"Get Started" = "getting-started.md"},
         {"Equilibrium" = "equilibrium.md"},
-        {"Visualization" = "generated/gallery/index.md"},
+        {"2D Visualisation" = "generated/gallery/index.md"},
+        {"3D Visualisation" = "3d-visualisation.md"},
     ]},
     {"Theory" = [
         {"Overview" = "theory.md"},

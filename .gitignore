@@ -175,6 +175,9 @@ venv.bak/
 # mkdocs-gallery generated output
 /docs/generated/
 
+# Generated 3D HTML scenes (built by scripts/generate_3d_html.py)
+/docs/assets/3d_scene_*.html
+
 # mypy
 .mypy_cache/
 .dmypy.json
