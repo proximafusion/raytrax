@@ -284,4 +284,6 @@ def dvolume_drho(
         normalized_effective_radius_out=rho,
     )
     g00 = g00_interpolated[0, :]
-    return (2 * jnp.pi) ** 2 * jnp.abs(g00)
+    # dV/ds = (2π)² g00 where s = ρ² (normalised toroidal flux).
+    # By the chain rule dV/dρ = dV/ds × ds/dρ = (2π)² g00 × 2ρ.
+    return (2 * jnp.pi) ** 2 * jnp.abs(g00) * 2 * rho

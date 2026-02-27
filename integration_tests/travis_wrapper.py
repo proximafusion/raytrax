@@ -347,7 +347,7 @@ def _parse_beamtrace(filepath: Path) -> dict:
         "rho": data[:, 8],
         "optical_depth": data[:, 18],
         "absorption_m_inv": data[:, 16],
-        "linear_power_density_w_per_m": data[:, 23] + data[:, 24],
+        "linear_power_density_w_per_m": (data[:, 23] + data[:, 24]) * 1e6,  # MW/m → W/m
         "electron_density_1e20": data[:, 9] / 1e20,  # Column 10: ne in m^-3
         "electron_temperature_keV": data[:, 10],  # Column 11: Te in keV
         "magnetic_field_magnitude_T": data[
