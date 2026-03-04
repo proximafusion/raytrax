@@ -67,6 +67,74 @@ def plot_flux_surface_3d(
     return plotter
 
 
+def plot_b_surface_3d(
+    magnetic_configuration: MagneticConfiguration,
+    b_value: float,
+    plotter=None,
+    **kwargs,
+):
+    """Plot a 3D surface of constant magnetic field magnitude |B| using PyVista.
+
+    Useful for visualising the electron-cyclotron resonance layer, e.g. the
+    2nd-harmonic resonance surface at
+    ``B = f_0 / (2 × 27.99 GHz/T)``.
+
+    Args:
+        magnetic_configuration: The magnetic configuration object.
+        b_value: The |B| value (T) at which to extract the isosurface.
+        plotter: Optional PyVista plotter to add the mesh to.
+            If None, a new one is created.
+        **kwargs: Additional keyword arguments forwarded to
+            ``plotter.add_mesh()`` (e.g. ``color``, ``opacity``).
+
+    Returns:
+        A PyVista plotter object. Call ``.show()`` to display.
+    """
+    import pyvista as pv
+
+    rphiz = np.array(magnetic_configuration.rphiz)
+    B_mag = np.linalg.norm(np.array(magnetic_configuration.magnetic_field), axis=-1)
+    rho_3d = np.array(magnetic_configuration.rho)
+
+    R = rphiz[..., 0]
+    phi = rphiz[..., 1]
+    Z = rphiz[..., 2]
+
+    X = R * np.cos(phi)
+    Y = R * np.sin(phi)
+
+    # Fill NaN rho and B values (grid points outside the VMEC domain).
+    rho_fill = np.where(np.isfinite(rho_3d), rho_3d, 2.0)
+    # 0 T is safely below any realistic b_value — NaN B cells are inert.
+    B_safe = np.where(np.isfinite(B_mag), B_mag, 0.0)
+
+    grid = pv.StructuredGrid(X, Y, Z)
+    grid["rho"] = rho_fill.flatten(order="F")
+    grid["B"] = B_safe.flatten(order="F")
+
+    # clip_scalar cuts along rho=1 and interpolates scalar values at the cut,
+    # unlike threshold which only removes whole cells.  After clipping, the B
+    # isosurface terminates naturally at the LCFS edge without an artificial cap.
+    # invert=True: clip (remove) values above 1.0, keeping rho < 1 (inside plasma)
+    inside = grid.clip_scalar(scalars="rho", invert=True, value=1.0)
+    contour = inside.contour(isosurfaces=[b_value], scalars="B")
+    # Taubin smoothing removes faceting from the coarse cylindrical grid without
+    # shrinking the surface (unlike Laplacian smoothing).
+    contour = contour.smooth_taubin(n_iter=50, pass_band=0.1)
+
+    if plotter is None:
+        plotter = pv.Plotter(notebook=True)
+        plotter.add_axes()
+        plotter.view_isometric()
+
+    mesh_kwargs = {"color": "gold", "opacity": 0.55, "smooth_shading": True}
+    mesh_kwargs.update(kwargs)
+
+    plotter.add_mesh(contour, **mesh_kwargs)
+
+    return plotter
+
+
 def plot_beam_profile_3d(
     beam_profile: BeamProfile,
     plotter=None,
