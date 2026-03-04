@@ -11,16 +11,20 @@ Run from the repository root:
 
 from pathlib import Path
 
-import jax.numpy as jnp
-import pyvista as pv
+import jax
 
-from raytrax import Beam, RadialProfiles, trace
-from raytrax.examples.w7x import (
+jax.config.update("jax_enable_x64", True)
+
+import jax.numpy as jnp  # noqa: E402
+import pyvista as pv  # noqa: E402
+
+from raytrax import Beam, RadialProfiles, trace  # noqa: E402
+from raytrax.examples.w7x import (  # noqa: E402
     PortA,
     get_w7x_magnetic_configuration,
     w7x_aiming_angles_to_direction,
 )
-from raytrax.plot.plot3d import plot_beam_profile_3d, plot_flux_surface_3d
+from raytrax.plot.plot3d import plot_beam_profile_3d, plot_flux_surface_3d  # noqa: E402
 
 OUT_DIR = Path("docs/assets")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
