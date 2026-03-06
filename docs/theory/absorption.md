@@ -7,7 +7,7 @@ icon: lucide/activity
 ## Loss Density
 
 
-We start from Pointing's theorem in the absence of free currents,
+We start from Poynting's theorem in the absence of free currents,
 
 $$\nabla \cdot \boldsymbol{S} = -\frac{\partial u}{\partial t} = \boldsymbol{E} \cdot \frac{\partial \boldsymbol{D}}{\partial t} - \boldsymbol{H} \cdot \frac{\partial \boldsymbol{B}}{\partial t}$$
 
@@ -33,12 +33,12 @@ The time average of the power flux density (Poynting vector) is given by the ene
 
 $$\left\langle\boldsymbol{S}\right\rangle = \left\langle u \right\rangle \boldsymbol{v}_g$$
 
-Using the Hermitian part of the dispersion tensor $\boldsymbol{\mathsf{D}}^H=\frac{1}{2}(\boldsymbol{\mathsf{D}} + \boldsymbol{\mathsf{D}}^\dagger)$, it can be shown that this quantity and also be written as
+Using the Hermitian part of the dispersion tensor $\boldsymbol{\mathsf{D}}^H=\frac{1}{2}(\boldsymbol{\mathsf{D}} + \boldsymbol{\mathsf{D}}^\dagger)$, it can be shown that this quantity can also be written as
 
 $$\left\langle\boldsymbol{S}\right\rangle =  -\frac{\varepsilon_0 \omega}{4} \,\mathrm{Re}(\hat{\boldsymbol{E}}^* \cdot \frac{\partial\boldsymbol{\mathsf{D}}^H}{\partial {\boldsymbol{k}} } \cdot \hat{\boldsymbol{E}})$$
 
 
-## Absporption Coefficient
+## Absorption Coefficient
 
 
 The **absorption coefficient**  (units 1/m) can now be expressed in terms of the power loss density (units W/m³) and the power flux density (units W/m²) as
@@ -57,13 +57,13 @@ The absorption coefficient $\alpha$ is related to the (dimensionless) **optical 
 
 $$\frac{d\tau}{ds}=\alpha$$
 
-where $s$ is the arc length, and the **linear absorption power density** (units W/m) along the ray tracectory is given as
+where $s$ is the arc length, and the **linear absorption power density** (units W/m) along the ray trajectory is given as
 
 $$\frac{dP}{ds}=P_0\alpha e^{-\tau}$$
 
 where $P_0$ is the initial power of the ray.
 
-## Weakly Relatvistic Dielectric Tensor
+## Weakly Relativistic Dielectric Tensor
 
 For the hermitian part of the dispersion tensor appearing in the denominator of the absorption coefficient,
 

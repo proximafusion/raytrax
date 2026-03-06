@@ -22,7 +22,7 @@ def polarization(
     given a dielectric tensor.
 
     Args:
-        dieletric_tensor: Dielectric tensor as a 3x3 complex array.
+        dielectric_tensor: Dielectric tensor as a 3x3 complex array.
         refractive_index_perp: Refractive index perpendicular to the magnetic field.
         refractive_index_para: Refractive index parallel to the magnetic field.
         frequency: Frequency of the wave.

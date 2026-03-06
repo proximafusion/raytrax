@@ -30,7 +30,7 @@ $$\frac{d\boldsymbol{r}}{ds} = \left|\frac{\partial \mathcal H}{\partial \boldsy
 
 where $\boldsymbol{n}=\boldsymbol{k}c/\omega$.
 
-The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathcal H/\partial \boldsymbol{n}$ are computed in Raytrax using automated differentiation in the function `hamiltonian_gradients`, starting from a scalar Hamiltonian function.
+The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathcal H/\partial \boldsymbol{n}$ are computed in Raytrax using automatic differentiation in the function `hamiltonian_gradients`, starting from a scalar Hamiltonian function.
 
 ## Cold Tracing
 

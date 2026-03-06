@@ -22,4 +22,4 @@ The following is a list of current limitations of Raytrax.
 
 ## Validation
 
-- Raytrax has not been fully validated against existing ray traxing codes or experimental data yet.
+- Raytrax has not been fully validated against existing ray tracing codes or experimental data yet.
