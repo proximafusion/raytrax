@@ -64,7 +64,6 @@ def get_w7x_equilibrium() -> VmecWOut:
     wout_json_path = _DATA_DIR / "w7x_wout.json"
 
     if wout_json_path.exists():
-        print(f"Loading W7-X equilibrium from cache: {wout_json_path}")
         with open(wout_json_path, "r") as f:
             json_data = f.read()
         return VmecWOut.model_validate_json(json_data)

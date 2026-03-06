@@ -68,6 +68,10 @@ plotter.export_html("scene.html")  # interactive standalone HTML
 
 > Try out a **[live interactive version](https://proximafusion.github.io/raytrax/3d-visualisation/)** in the docs.
 
+## Jupyter Notebooks
+
+Quick-start notebooks are in the [`notebooks/`](notebooks/) directory.
+
 ## Installation
 
 ```bash

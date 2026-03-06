@@ -104,3 +104,13 @@ The returned [`TraceResult`][raytrax.types.TraceResult] contains:
 - `absorbed_power_fraction` — fraction of the input beam power absorbed, i.e. $1 - e^{-\tau}$.
 - `optical_depth` — total optical depth $\tau$ accumulated along the ray.
 - `deposition_rho_mean` / `deposition_rho_std` — volume-weighted mean and standard deviation of the deposition location in $\rho$.
+
+## Jupyter Notebooks
+
+The [`notebooks/`](https://github.com/proximafusion/raytrax/tree/main/notebooks) directory contains ready-to-run notebooks ideal for exploring Raytrax interactively. You can launch them directly in your browser — no local installation required:
+
+| Notebook | Description | |
+|----------|-------------|---|
+| [`01_first_trace.ipynb`](https://github.com/proximafusion/raytrax/blob/main/notebooks/01_first_trace.ipynb) | Build a synthetic tokamak, trace a beam, and visualise the R–Z trajectory — no external files needed. | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/proximafusion/raytrax/main?labpath=notebooks%2F01_first_trace.ipynb) |
+| [`02_w7x_trace_and_visualization.ipynb`](https://github.com/proximafusion/raytrax/blob/main/notebooks/02_w7x_trace_and_visualization.ipynb) | Load the bundled W7-X equilibrium, set a realistic antenna position, and produce polished cross-section and profile plots. | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/proximafusion/raytrax/main?labpath=notebooks%2F02_w7x_trace_and_visualization.ipynb) |
+| [`03_gradient_optimization.ipynb`](https://github.com/proximafusion/raytrax/blob/main/notebooks/03_gradient_optimization.ipynb) | Differentiate through the ray tracer with `jax.grad` and steer a beam via gradient ascent. | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/proximafusion/raytrax/main?labpath=notebooks%2F03_gradient_optimization.ipynb) |

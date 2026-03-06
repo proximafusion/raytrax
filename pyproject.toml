@@ -64,6 +64,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"notebooks/*.ipynb" = [
+    "E402",  # imports after jax.config.update() are intentional
+    "E702",  # semicolon-separated statements are idiomatic in notebooks
+]
 "docs/examples/**" = ["E402"]     # example scripts intentionally set up env before imports
 "integration_tests/**" = ["E402"] # same reason
 "src/raytrax/__init__.py" = ["E402"]  # JAX config must run before submodule imports
