@@ -51,7 +51,7 @@ JAX recompiles whenever the *structure* of the inputs changes. For Raytrax, this
 | Magnetic field grid shape | **Yes** |
 | Wave mode (`"X"` ↔ `"O"`) | **Yes** |
 | Switching between tokamak and stellarator | **Yes** |
-| Number of field periods (`nfp`) | **Yes** |
+| Number of field periods (`nfp`) | No |
 
 In practice, your grid shapes and device type are fixed for a given study, so you typically pay the compilation cost once per Python session.
 

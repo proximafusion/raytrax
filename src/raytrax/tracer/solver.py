@@ -229,7 +229,7 @@ def _solve(
     nfp: int,
     tracer_settings: TracerSettings,
 ) -> diffrax.Solution:
-    """Core ODE solve shared by trace_jitted and absorbed_fraction_jitted.
+    """Core ODE solve called by trace_jitted.
 
     Starts from `position` directly. The vacuum region (ne=0, rho>1) is handled
     automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne<1e-6,
