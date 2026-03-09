@@ -286,7 +286,7 @@ def compute_resonance_integral(
     u_cutoff = 5.0 * thermal_velocity
     resonance_in_bulk = jnp.minimum(jnp.abs(u_min), jnp.abs(u_max)) < u_cutoff
 
-    def compute_integral():
+    def compute_integral() -> ScalarFloat:
         # K2_scaled = kve(2, mu) depends only on thermal_velocity, which is
         # constant across all 1000 vmap iterations.  Pre-compute it here so
         # it is evaluated exactly once rather than once per grid point.

@@ -14,8 +14,8 @@ ComplexFloat = complex | jt.Complex[jax.Array, " "]
 
 def polarization(
     dielectric_tensor: jt.Complex[jax.Array, "3 3"],
-    refractive_index_perp,
-    refractive_index_para,
+    refractive_index_perp: ScalarFloat,
+    refractive_index_para: ScalarFloat,
     frequency: ScalarFloat,
     cyclotron_frequency: ScalarFloat,
     mode: Literal["X", "O"],
