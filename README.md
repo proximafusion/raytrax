@@ -83,7 +83,7 @@ See the [documentation](https://proximafusion.github.io/raytrax/) for a full get
 
 ## Citing Raytrax
 
-If you use Raytrax in your research, please cite it via Zenodo: [doi:10.5281/zenodo.18924104](https://doi.org/10.5281/zenodo.18924104)
+If you use Raytrax in your research, please cite it via Zenodo: [doi:10.5281/zenodo.18924104](https://doi.org/10.5281/zenodo.18924104).
 
 ## Acknowledgements
 
