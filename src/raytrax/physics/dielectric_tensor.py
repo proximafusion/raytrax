@@ -4,9 +4,9 @@ import jaxtyping as jt
 from jax.scipy.special import gamma
 
 from raytrax.math import shkarofsky
+from raytrax.types import ScalarFloat
 
 ScalarInt = int | jt.Int[jax.Array, " "]
-ScalarFloat = float | jt.Float[jax.Array, " "]
 
 
 def cold_dielectric_tensor(

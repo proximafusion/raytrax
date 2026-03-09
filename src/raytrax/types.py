@@ -9,6 +9,7 @@ import numpy as np
 from safetensors import safe_open
 from safetensors.numpy import load_file, save_file
 
+ScalarFloat = float | jt.Float[jax.Array, " "]
 T = TypeVar("T", bound="SafetensorsMixin")
 
 

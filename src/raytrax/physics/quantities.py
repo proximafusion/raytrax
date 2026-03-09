@@ -1,9 +1,7 @@
-import jax
 import jax.numpy as jnp
-import jaxtyping as jt
 from scipy import constants
 
-ScalarFloat = float | jt.Float[jax.Array, " "]
+from raytrax.types import ScalarFloat
 
 
 def electron_plasma_frequency(electron_density_1e20_per_m3: ScalarFloat) -> ScalarFloat:

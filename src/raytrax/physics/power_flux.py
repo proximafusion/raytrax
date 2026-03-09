@@ -4,8 +4,7 @@ import jaxtyping as jt
 
 from raytrax.math import utils
 from raytrax.physics import dispersion
-
-ScalarFloat = float | jt.Float[jax.Array, " "]
+from raytrax.types import ScalarFloat
 
 
 def power_flux_vector_stix(

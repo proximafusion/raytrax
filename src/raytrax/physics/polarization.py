@@ -5,8 +5,8 @@ import jax.numpy as jnp
 import jaxtyping as jt
 
 from raytrax.physics import dispersion
+from raytrax.types import ScalarFloat
 
-ScalarFloat = float | jt.Float[jax.Array, " "]
 ComplexFloat = complex | jt.Complex[jax.Array, " "]
 
 

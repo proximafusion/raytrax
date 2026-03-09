@@ -8,8 +8,8 @@ from scipy.constants import c as speed_of_light
 from raytrax.math import bessel
 from raytrax.physics import dielectric_tensor as dielectric_tensor_module
 from raytrax.physics import distribution_function, polarization, power_flux, quantities
+from raytrax.types import ScalarFloat
 
-ScalarFloat = float | jt.Float[jax.Array, " "]
 ScalarInt = int | jt.Int[jax.Array, " "]
 ScalarBool = bool | jt.Bool[jax.Array, " "]
 

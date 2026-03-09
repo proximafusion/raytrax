@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import jaxtyping as jt
 
-ScalarFloat = float | jt.Float[jax.Array, " "]
+from raytrax.types import ScalarFloat
 
 
 def dispersion_cold(

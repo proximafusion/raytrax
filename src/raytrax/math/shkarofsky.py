@@ -1,13 +1,11 @@
 import jax
 import jax.numpy as jnp
-import jaxtyping as jt
 
 from raytrax.math.faddeeva import plasma_dispersion_function as Z
 from raytrax.math.faddeeva import (
     plasma_dispersion_function_derivative as Z_prime,
 )
-
-ScalarFloat = float | jt.Float[jax.Array, " "]
+from raytrax.types import ScalarFloat
 
 _PSI_TOLERANCE = 1e-6  # Tolerance for checking if psi is zero
 
