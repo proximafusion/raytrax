@@ -155,7 +155,7 @@ def _right_hand_side(
     ``(setting, interpolators, nfp, tracer_settings)`` where ``interpolators`` is an
     :class:`Interpolators` pytree.
     """
-    setting, interpolators, nfp, _tracer_settings = args
+    setting, interpolators, nfp, _ = args
 
     state = _y_to_state(y, s)
 
