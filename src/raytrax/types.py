@@ -167,6 +167,50 @@ class TraceResult:
     r"""Flux-surface-volume-weighted standard deviation of $\rho$ for power deposition."""
 
 
+@dataclass(frozen=True)
+class TracerSettings:
+    """Settings for the ray tracing ODE solver.
+
+    All float fields are JAX-traceable (changing them does **not** trigger
+    recompilation). Only ``max_steps`` in the solver — which controls static
+    buffer sizes — would require recompilation, and is intentionally omitted
+    here for that reason.
+    """
+
+    relative_tolerance: float = 1e-4
+    """Relative tolerance of the adaptive step-size controller."""
+
+    absolute_tolerance: float = 1e-6
+    """Absolute tolerance of the adaptive step-size controller."""
+
+    max_step_size: float = 0.05
+    """Maximum ODE step size in metres (arc length). Decreasing this improves
+    accuracy at the cost of more steps."""
+
+    max_arc_length: float = 20.0
+    """Maximum arc length to integrate in metres before the solver gives up."""
+
+
+jax.tree_util.register_pytree_node(
+    TracerSettings,
+    lambda s: (
+        (
+            s.relative_tolerance,
+            s.absolute_tolerance,
+            s.max_step_size,
+            s.max_arc_length,
+        ),
+        None,
+    ),
+    lambda _, children: TracerSettings(
+        relative_tolerance=children[0],
+        absolute_tolerance=children[1],
+        max_step_size=children[2],
+        max_arc_length=children[3],
+    ),
+)
+
+
 @dataclass
 class RadialProfiles:
     r"""Radial profiles of electron density and temperature.

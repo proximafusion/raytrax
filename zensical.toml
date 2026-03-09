@@ -8,6 +8,7 @@ nav = [
     {"Usage" = [
         {"Get Started" = "getting-started.md"},
         {"Equilibrium" = "equilibrium.md"},
+        {"Tuning" = "tuning.md"},
         {"Visualization" = [
             {"Overview" = "generated/gallery/index.md"},
             {"Radial profiles" = "generated/gallery/plot1d/plot_profiles.md"},

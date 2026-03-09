@@ -21,6 +21,7 @@ from .types import (
     RadialProfile,
     RadialProfiles,
     TraceResult,
+    TracerSettings,
 )
 
 _N_INTERP = 2000  # dense arc-length samples used for smooth radial binning
@@ -135,6 +136,7 @@ def _run_trace(
     magnetic_configuration: MagneticConfiguration,
     radial_profiles: RadialProfiles,
     beam: Beam,
+    settings: TracerSettings,
 ) -> tuple[TraceBuffers, jax.Array]:
     """Build interpolators and run the JIT-compiled ODE solve."""
     setting = RaySetting(frequency=beam.frequency, mode=beam.mode)
@@ -155,6 +157,7 @@ def _run_trace(
         magnetic_configuration.nfp,
         magnetic_configuration.rho_1d,
         magnetic_configuration.dvolume_drho,
+        settings,
     )
 
 
@@ -163,6 +166,7 @@ def trace(
     radial_profiles: RadialProfiles,
     beam: Beam,
     trim: bool = True,
+    settings: TracerSettings = TracerSettings(),
 ) -> TraceResult:
     """Trace a single beam through the plasma.
 
@@ -173,12 +177,14 @@ def trace(
         trim: If `True` (default), trim the output to the valid trajectory length.
             Set this to `False` when using automatic differentiation.
             Note: this parameter may be removed in a future release.
+        settings: ODE solver settings (tolerances, step sizes, termination
+            thresholds). Defaults to :class:`TracerSettings` with sensible values.
 
     Returns:
         TraceResult with beam profile and radial deposition profile.
     """
     result, num_accepted_steps = _run_trace(
-        magnetic_configuration, radial_profiles, beam
+        magnetic_configuration, radial_profiles, beam, settings
     )
 
     if not trim:

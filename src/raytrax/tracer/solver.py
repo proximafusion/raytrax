@@ -11,6 +11,7 @@ import jaxtyping as jt
 from raytrax.physics import absorption, hamiltonian
 from raytrax.tracer import ray
 from raytrax.tracer.buffers import Interpolators, TraceBuffers
+from raytrax.types import TracerSettings
 
 
 def _map_to_fundamental_domain(
@@ -151,10 +152,10 @@ def _right_hand_side(
     previously forced ~2 mm step sizes.
 
     Uses diffrax's ``(t, y, args)`` calling convention. The args tuple is
-    ``(setting, interpolators, nfp)`` where ``interpolators`` is an
+    ``(setting, interpolators, nfp, tracer_settings)`` where ``interpolators`` is an
     :class:`Interpolators` pytree.
     """
-    setting, interpolators, nfp = args
+    setting, interpolators, nfp, _tracer_settings = args
 
     state = _y_to_state(y, s)
 
@@ -217,7 +218,6 @@ _event = diffrax.Event(
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
 _solver = diffrax.Tsit5()
-_stepsize_controller = diffrax.PIDController(rtol=1e-4, atol=1e-6, dtmax=0.05)
 _saveat = diffrax.SaveAt(steps=True, t0=True)
 
 
@@ -227,6 +227,7 @@ def _solve(
     setting: ray.RaySetting,
     interpolators: Interpolators,
     nfp: int,
+    tracer_settings: TracerSettings,
 ) -> diffrax.Solution:
     """Core ODE solve shared by trace_jitted and absorbed_fraction_jitted.
 
@@ -234,17 +235,22 @@ def _solve(
     automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne<1e-6,
     giving straight-line propagation until the beam enters plasma.
     """
+    stepsize_controller = diffrax.PIDController(
+        rtol=tracer_settings.relative_tolerance,
+        atol=tracer_settings.absolute_tolerance,
+        dtmax=tracer_settings.max_step_size,
+    )
     y0 = jnp.concatenate([position, direction, jnp.array([0.0])])
     return diffrax.diffeqsolve(
         terms=_term,
         solver=_solver,
         t0=0.0,
-        t1=20.0,
+        t1=tracer_settings.max_arc_length,
         dt0=0.001,
         y0=y0,
-        args=(setting, interpolators, nfp),
+        args=(setting, interpolators, nfp, tracer_settings),
         saveat=_saveat,
-        stepsize_controller=_stepsize_controller,
+        stepsize_controller=stepsize_controller,
         event=_event,
         max_steps=4096,
         throw=False,
@@ -324,6 +330,7 @@ def trace_jitted(
     nfp: int,
     rho_1d: jt.Float[jax.Array, " nrho"],
     dvolume_drho: jt.Float[jax.Array, " nrho"],
+    tracer_settings: TracerSettings = TracerSettings(),
 ) -> tuple[TraceBuffers, jax.Array]:
     """Fully JIT-compiled ray trace: ODE solve + diagnostics + radial profile.
 
@@ -331,7 +338,7 @@ def trace_jitted(
     max_steps=4096; slot 0 is the antenna position (t0 save). The caller trims to
     num_accepted_steps + 1 valid entries.
     """
-    sol = _solve(position, direction, setting, interpolators, nfp)
+    sol = _solve(position, direction, setting, interpolators, nfp, tracer_settings)
     # sol.ts and sol.ys are Array | None in diffrax's type stubs (diffrax can't
     # statically see SaveAt(steps=True, t0=True)), but we always use that SaveAt,
     # so they are always arrays here.

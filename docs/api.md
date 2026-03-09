@@ -42,6 +42,14 @@ icon: lucide/file-code
       show_root_heading: true
       show_signature_annotations: true
 
+::: raytrax.types.TracerSettings
+    options:
+      heading_level: 3
+      show_source: false
+      show_root_members_full_path: true
+      show_root_heading: true
+      show_signature_annotations: true
+
 
 ## Output Types
 

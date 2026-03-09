@@ -16,5 +16,13 @@ from .equilibrium.interpolate import MagneticConfiguration as MagneticConfigurat
 from .tracer.buffers import Interpolators as Interpolators
 from .types import Beam as Beam
 from .types import RadialProfiles as RadialProfiles
+from .types import TracerSettings as TracerSettings
 
-__all__ = ["Beam", "Interpolators", "MagneticConfiguration", "RadialProfiles", "trace"]
+__all__ = [
+    "Beam",
+    "Interpolators",
+    "MagneticConfiguration",
+    "RadialProfiles",
+    "TracerSettings",
+    "trace",
+]

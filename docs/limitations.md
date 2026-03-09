@@ -8,7 +8,7 @@ The following is a list of current limitations of Raytrax.
 
 ## Input formats
 
-- To load magnetic equilibria, only [VMEC++](https://proximafusion.github.io/vmecpp/) is supported so far. Note that VMEC++ is interoperable with SIMSOPT and can read legacy VMEC output files as well.
+- To load MHD equilibria, only [VMEC++](https://proximafusion.github.io/vmecpp/) is supported so far. Note that VMEC++ is interoperable with SIMSOPT and can read legacy VMEC output files as well.
 
 ## Beam representation
 
