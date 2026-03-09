@@ -140,13 +140,20 @@ TEST_DATA_F52 = [
 ]
 
 
-def test_shkarofsky_impl_f12():
+def _sequence_value(phi, psi, q):
+    force_psi_zero = psi == 0.0
+    return shkarofsky._shkarofsky_sequence(
+        psi,
+        phi,
+        q_max=q,
+        force_psi_zero=force_psi_zero,
+    )[q]
+
+
+def test_shkarofsky_sequence_f12():
     """Test the Shkarofsky function F_{1/2}."""
     for phi, psi, expected in TEST_DATA_F12:
-        if psi == 0.0:
-            result = shkarofsky._shkarofsky_impl_psi_zero(phi, 0)
-        else:
-            result = shkarofsky._shkarofsky_impl_psi_nonzero(psi, phi, 0)
+        result = _sequence_value(phi=phi, psi=psi, q=0)
         np.testing.assert_allclose(
             result,
             expected,
@@ -156,13 +163,10 @@ def test_shkarofsky_impl_f12():
         )
 
 
-def test_shkarofsky_impl_f32():
+def test_shkarofsky_sequence_f32():
     """Test the Shkarofsky function F_{3/2}."""
     for phi, psi, expected in TEST_DATA_F32:
-        if psi == 0.0:
-            result = shkarofsky._shkarofsky_impl_psi_zero(phi, 1)
-        else:
-            result = shkarofsky._shkarofsky_impl_psi_nonzero(psi, phi, 1)
+        result = _sequence_value(phi=phi, psi=psi, q=1)
         np.testing.assert_allclose(
             result,
             expected,
@@ -172,13 +176,10 @@ def test_shkarofsky_impl_f32():
         )
 
 
-def test_shkarofsky_impl_f52():
+def test_shkarofsky_sequence_f52():
     """Test the Shkarofsky function F_{5/2}."""
     for phi, psi, expected in TEST_DATA_F52:
-        if psi == 0.0:
-            result = shkarofsky._shkarofsky_impl_psi_zero(phi, 2)
-        else:
-            result = shkarofsky._shkarofsky_impl_psi_nonzero(psi, phi, 2)
+        result = _sequence_value(phi=phi, psi=psi, q=2)
         np.testing.assert_allclose(
             result,
             expected,
@@ -188,14 +189,18 @@ def test_shkarofsky_impl_f52():
         )
 
 
-def test_shkarofsky_impl_f12_small_psi():
+def test_shkarofsky_sequence_f12_small_psi():
     """Check the continuity of the Shkarofsky function F_{1/2} at small psi."""
     psi_limit = shkarofsky._PSI_TOLERANCE
     epsilon = 1e-10
-    value_zero = shkarofsky._shkarofsky_impl(0.0, 1.0, 0)
-    value_epsilon = shkarofsky._shkarofsky_impl(epsilon, 1.0, 0)
-    value_below_limit = shkarofsky._shkarofsky_impl(psi_limit - epsilon, 1.0, 0)
-    value_above_limit = shkarofsky._shkarofsky_impl(psi_limit + epsilon, 1.0, 0)
+    value_zero = shkarofsky._shkarofsky_sequence(0.0, 1.0, q_max=0)[0]
+    value_epsilon = shkarofsky._shkarofsky_sequence(epsilon, 1.0, q_max=0)[0]
+    value_below_limit = shkarofsky._shkarofsky_sequence(
+        psi_limit - epsilon, 1.0, q_max=0
+    )[0]
+    value_above_limit = shkarofsky._shkarofsky_sequence(
+        psi_limit + epsilon, 1.0, q_max=0
+    )[0]
     # these three should agree exactly
     np.testing.assert_allclose(
         value_zero,
