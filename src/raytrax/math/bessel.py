@@ -1,3 +1,5 @@
+"""Modified Bessel functions (K₂, exponentially scaled Kν) used in the relativistic Maxwell-Jüttner distribution."""
+
 from functools import partial
 
 import jax

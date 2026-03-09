@@ -1,3 +1,5 @@
+"""Cold plasma dispersion relation (Appleton-Hartree) and dispersion tensor in Stix coordinates."""
+
 from typing import Literal
 
 import jax

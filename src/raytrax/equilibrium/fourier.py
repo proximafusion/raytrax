@@ -1,3 +1,5 @@
+"""VMEC Fourier-series evaluation: magnetic field and geometry on toroidal grids, and dV/dρ computation."""
+
 from enum import Enum
 from functools import partial
 
@@ -7,7 +9,7 @@ import jax.numpy as jnp
 import jaxtyping as jt
 from beartype import beartype as typechecker
 
-from raytrax.types import WoutLike
+from raytrax.equilibrium.protocol import WoutLike
 
 
 class FourierBasis(Enum):

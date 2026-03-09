@@ -35,7 +35,7 @@ pytest integration_tests/ -m integration -v -s   # integration tests (slower, ne
 Test files use the `*_test.py` naming convention. Fixtures for magnetic configurations (W7-X, tokamak) are in `tests/fixtures.py` and re-exported via `tests/conftest.py`.
 
 ### Key Patterns
-- **Source layout**: `src/raytrax/` is the package root, with subpackages `equilibrium/`, `math/`, `physics/`, `plot/`, `examples/`.
+- **Source layout**: `src/raytrax/` is the package root, with subpackages `tracer/` (ODE solver, ray/buffer types), `physics/` (Hamiltonian, absorption, dielectric tensor, etc.), `equilibrium/` (VMEC Fourier evaluation, cylindrical interpolation, `WoutLike` protocol), `math/` (Bessel, Faddeeva, Shkarofsky), `plot/`, `examples/`.
 - **64-bit precision required**: JAX must have `jax_enable_x64 = True` before import.
 - **Differentiability**: `trace(..., trim=False)` keeps fixed-size padded arrays for use with `jax.grad`/`jax.jacfwd`. The `trim=True` default slices to valid entries but breaks AD.
 - **Stellarator symmetry**: The solver maps toroidal angles to the fundamental domain `[0, π/nfp]` and applies symmetry transforms for B-field evaluation.

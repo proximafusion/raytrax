@@ -22,7 +22,8 @@ import numpy as np
 from beartype import beartype as typechecker
 from scipy.interpolate import griddata
 
-from raytrax.types import RadialProfiles, SafetensorsMixin, WoutLike
+from raytrax.equilibrium.protocol import WoutLike
+from raytrax.types import RadialProfiles, SafetensorsMixin
 
 from .fourier import dvolume_drho as compute_dvolume_drho
 from .fourier import (

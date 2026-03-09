@@ -1,3 +1,5 @@
+"""Electromagnetic power flux vector (group velocity direction) in Stix coordinates."""
+
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt

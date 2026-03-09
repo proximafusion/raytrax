@@ -1,3 +1,5 @@
+"""Cold plasma ray-tracing Hamiltonian and its gradients ∂H/∂r, ∂H/∂N."""
+
 from collections.abc import Callable
 from typing import Literal
 
@@ -5,7 +7,6 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Float
 
-from raytrax import ray
 from raytrax.physics import dispersion, quantities
 
 
@@ -41,38 +42,18 @@ def hamiltonian(
     )
 
 
-_hamiltonian_gradients_rn = jax.grad(hamiltonian, argnums=(0, 1))
+hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1))
+hamiltonian_gradients.__doc__ = r"""Compute both Hamiltonian gradients (∂H/∂r, ∂H/∂N) in a single backward pass.
 
+Signature mirrors :func:`hamiltonian`: ``(position, refractive_index,
+magnetic_field_interpolator, rho_interpolator,
+electron_density_profile_interpolator, frequency, mode)``.
 
-def hamiltonian_gradients(
-    ray_state: ray.RayState,
-    ray_setting: ray.RaySetting,
-    magnetic_field_interpolator: Callable[
-        [Float[jax.Array, "3"]], Float[jax.Array, "3"]
-    ],
-    rho_interpolator: Callable[[Float[jax.Array, "3"]], Float[jax.Array, ""]],
-    electron_density_profile_interpolator: Callable[
-        [Float[jax.Array, ""]], Float[jax.Array, ""]
-    ],
-) -> tuple[Float[jax.Array, "3"], Float[jax.Array, "3"]]:
-    r"""Compute both Hamiltonian gradients in a single backward pass.
-
-    Returns (∂H/∂r, ∂H/∂N) from one shared forward+backward pass through the
-    Hamiltonian, halving the number of B-interpolator evaluations compared to
-    computing each gradient separately.
-
-    Returns:
-        Tuple of (grad_r, grad_n) where grad_r = ∂H/∂r and grad_n = ∂H/∂N.
-    """
-    return _hamiltonian_gradients_rn(
-        ray_state.position,
-        ray_state.refractive_index,
-        magnetic_field_interpolator,
-        rho_interpolator,
-        electron_density_profile_interpolator,
-        ray_setting.frequency,
-        ray_setting.mode,
-    )
+Returns a tuple ``(grad_r, grad_n)`` where ``grad_r = ∂H/∂r`` and
+``grad_n = ∂H/∂N``, computed in one shared forward+backward pass through the
+Hamiltonian, halving the number of B-interpolator evaluations compared to
+computing each gradient separately.
+"""
 
 
 def _hamiltonian_vacuum(

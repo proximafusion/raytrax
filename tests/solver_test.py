@@ -2,8 +2,8 @@ import interpax
 import jax
 import jax.numpy as jnp
 
-from raytrax import ray, solver
-from raytrax.types import Interpolators
+from raytrax.tracer import ray, solver
+from raytrax.tracer.buffers import Interpolators
 
 jax.config.update("jax_enable_x64", True)
 

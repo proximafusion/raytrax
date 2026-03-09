@@ -1,3 +1,5 @@
+"""JIT-compiled ray tracing ODE solver: integrates position, refractive index, and optical depth via diffrax."""
+
 from typing import NamedTuple, cast
 
 import diffrax
@@ -6,9 +8,9 @@ import jax
 import jax.numpy as jnp
 import jaxtyping as jt
 
-from raytrax import ray
 from raytrax.physics import absorption, hamiltonian
-from raytrax.types import Interpolators, TraceBuffers
+from raytrax.tracer import ray
+from raytrax.tracer.buffers import Interpolators, TraceBuffers
 
 
 def _map_to_fundamental_domain(
@@ -164,11 +166,13 @@ def _right_hand_side(
 
     # Compute both Hamiltonian gradients in a single backward pass
     hamiltonian_gradient_r, hamiltonian_gradient_n = hamiltonian.hamiltonian_gradients(
-        state,
-        setting,
+        state.position,
+        state.refractive_index,
         eval_B,
         eval_rho,
         interpolators.electron_density,
+        setting.frequency,
+        setting.mode,
     )
     norm = jnp.linalg.norm(hamiltonian_gradient_n)
 

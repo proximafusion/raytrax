@@ -13,8 +13,8 @@ if not getattr(jax.config, "jax_enable_x64", False):
 
 from .api import trace as trace
 from .equilibrium.interpolate import MagneticConfiguration as MagneticConfiguration
+from .tracer.buffers import Interpolators as Interpolators
 from .types import Beam as Beam
-from .types import Interpolators as Interpolators
 from .types import RadialProfiles as RadialProfiles
 
 __all__ = ["Beam", "Interpolators", "MagneticConfiguration", "RadialProfiles", "trace"]

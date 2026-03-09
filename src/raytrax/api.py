@@ -12,15 +12,14 @@ from .equilibrium.interpolate import (
     build_magnetic_field_interpolator,
     build_rho_interpolator,
 )
-from .ray import RaySetting
-from .solver import trace_jitted
+from .tracer.buffers import Interpolators, TraceBuffers
+from .tracer.ray import RaySetting
+from .tracer.solver import trace_jitted
 from .types import (
     Beam,
     BeamProfile,
-    Interpolators,
     RadialProfile,
     RadialProfiles,
-    TraceBuffers,
     TraceResult,
 )
 

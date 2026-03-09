@@ -12,7 +12,7 @@ from raytrax.equilibrium.interpolate import (
     cylindrical_grid_for_equilibrium,
     interpolate_toroidal_to_cylindrical_grid,
 )
-from raytrax.solver import (
+from raytrax.tracer.solver import (
     _apply_B_stellarator_symmetry,
     _cylindrical_to_cartesian_B,
     _map_to_fundamental_domain,
@@ -554,7 +554,7 @@ _DUMMY_RADIAL_PROFILES = RadialProfiles(
 
 def _make_tokamak_interpolators(mc):
     """Build Interpolators from an axisymmetric MagneticConfiguration."""
-    from raytrax.types import Interpolators
+    from raytrax.tracer.buffers import Interpolators
 
     return Interpolators(
         magnetic_field=build_magnetic_field_interpolator(mc),
@@ -602,7 +602,7 @@ def test_axisymmetric_rho_interpolator(tokamak_magnetic_configuration):
 
 def test_axisymmetric_eval_magnetic_field(tokamak_magnetic_configuration):
     """Test _eval_magnetic_field with axisymmetric interpolators."""
-    from raytrax.solver import _eval_magnetic_field
+    from raytrax.tracer.solver import _eval_magnetic_field
 
     interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
 
@@ -629,7 +629,7 @@ def test_axisymmetric_eval_magnetic_field(tokamak_magnetic_configuration):
 
 def test_axisymmetric_eval_rho(tokamak_magnetic_configuration):
     """Test _eval_rho with axisymmetric interpolators."""
-    from raytrax.solver import _eval_rho
+    from raytrax.tracer.solver import _eval_rho
 
     interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
 
@@ -649,7 +649,7 @@ def test_axisymmetric_eval_rho(tokamak_magnetic_configuration):
 
 def test_axisymmetric_jit_and_vmap(tokamak_magnetic_configuration):
     """Test that axisymmetric interpolators work with jit and vmap."""
-    from raytrax.solver import _eval_magnetic_field, _eval_rho
+    from raytrax.tracer.solver import _eval_magnetic_field, _eval_rho
 
     interpolators = _make_tokamak_interpolators(tokamak_magnetic_configuration)
 

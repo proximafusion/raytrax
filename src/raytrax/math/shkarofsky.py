@@ -1,3 +1,5 @@
+"""Shkarofsky integral functions F_{q+1/2}(s) for the warm plasma dielectric tensor."""
+
 import jax
 import jax.numpy as jnp
 

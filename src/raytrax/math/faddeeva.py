@@ -1,3 +1,5 @@
+"""Plasma dispersion function Z(w) and its derivative, computed via the Faddeeva function."""
+
 import jax
 import jax.numpy as jnp
 from scipy.special import wofz as scipy_wofz

@@ -1,3 +1,5 @@
+"""Fundamental plasma quantities: electron plasma frequency, cyclotron frequency, and thermal velocity."""
+
 import jax.numpy as jnp
 from scipy import constants
 

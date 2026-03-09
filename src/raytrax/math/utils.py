@@ -1,3 +1,5 @@
+"""Linear-algebra helpers: Hermitian and anti-Hermitian matrix decomposition."""
+
 import jax
 
 

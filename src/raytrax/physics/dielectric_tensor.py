@@ -1,3 +1,5 @@
+"""Cold and weakly-relativistic warm plasma dielectric tensors in Stix coordinates."""
+
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt

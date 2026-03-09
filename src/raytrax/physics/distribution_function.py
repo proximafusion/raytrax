@@ -1,3 +1,5 @@
+"""Relativistic Maxwell-Jüttner electron distribution function and its energy derivative."""
+
 import jax
 import jax.numpy as jnp
 

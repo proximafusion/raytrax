@@ -1,3 +1,5 @@
+"""ODE state types: RaySetting (frequency, mode) and RayState (position, refractive index, optical depth)."""
+
 from dataclasses import dataclass
 from typing import Literal
 

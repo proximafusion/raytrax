@@ -1,3 +1,5 @@
+"""Weakly-relativistic electron cyclotron absorption coefficient via momentum-space resonance integration."""
+
 from typing import Literal
 
 import jax

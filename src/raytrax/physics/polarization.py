@@ -1,3 +1,5 @@
+"""Wave polarization vector for O- and X-mode in Stix coordinates."""
+
 from typing import Literal
 
 import jax
