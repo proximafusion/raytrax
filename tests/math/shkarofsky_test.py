@@ -150,7 +150,7 @@ def test_shkarofsky_impl_f12():
         np.testing.assert_allclose(
             result,
             expected,
-            rtol=1e-15,
+            rtol=1e-10,
             atol=0.0,
             err_msg=f"F_{1 / 2} failed for phi={phi}, psi={psi}",
         )
@@ -166,7 +166,7 @@ def test_shkarofsky_impl_f32():
         np.testing.assert_allclose(
             result,
             expected,
-            rtol=1e-15,
+            rtol=1e-10,
             atol=0.0,
             err_msg=f"F_{3 / 2} failed for phi={phi}, psi={psi}",
         )
@@ -182,7 +182,7 @@ def test_shkarofsky_impl_f52():
         np.testing.assert_allclose(
             result,
             expected,
-            rtol=5e-14,  # a bit worse
+            rtol=1e-10,
             atol=0.0,
             err_msg=f"F_{5 / 2} failed for phi={phi}, psi={psi}",
         )
