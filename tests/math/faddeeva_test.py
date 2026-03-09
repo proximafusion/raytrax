@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from scipy.special import wofz as scipy_wofz
 
-from raytrax.math.faddeeva import wofz_jax
-
 jax.config.update("jax_enable_x64", True)
+
+from raytrax.math.faddeeva import wofz_jax  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Test points covering the full complex plane
@@ -97,7 +97,6 @@ _CASES = [
 
 _IDS = [desc for _, desc in _CASES]
 
-# Tolerance: pure-JAX algorithm should match scipy to ~1e-10 relative error
 _RTOL = 1e-10
 _ATOL = 1e-12  # absolute floor for small values
 
@@ -129,7 +128,7 @@ def test_wofz_reflection_identity():
         expected = 2 * np.exp(-(z**2))
         actual = w_pos + w_neg
         assert abs(actual - expected) < 1e-9, (
-            f"z={z}: w(z)+w(-z)={actual:.6f}, 2exp(-z²)={expected:.6f}"
+            f"z={z}: w(z)+w(-z)={actual!r}, 2exp(-z²)={expected!r}"
         )
 
 
@@ -157,12 +156,11 @@ def test_wofz_jvp():
     dz = jnp.array(0.3 + 0.2j, dtype=jnp.complex128)
     _, dw = jax.jvp(wofz_jax, (z0,), (dz,))
 
-    # Finite-difference estimate
     eps = 1e-6
     dw_fd = (wofz_jax(z0 + eps * dz) - wofz_jax(z0 - eps * dz)) / (2 * eps)
 
     assert abs(complex(dw) - complex(dw_fd)) < 1e-8, (
-        f"JVP mismatch: analytic={complex(dw):.6f}, fd={complex(dw_fd):.6f}"
+        f"JVP mismatch: analytic={complex(dw)!r}, fd={complex(dw_fd)!r}"
     )
 
 
@@ -185,4 +183,21 @@ def test_plasma_dispersion_function_values():
         z_arr = jnp.array(z, dtype=jnp.complex128)
         got = complex(plasma_dispersion_function(z_arr))
         expected = 1j * np.sqrt(np.pi) * scipy_wofz(z)
-        assert abs(got - expected) < 1e-10, f"Z({z}): got {got}, expected {expected}"
+        assert abs(got - expected) < 1e-10, (
+            f"Z({z}): got {got!r}, expected {expected!r}"
+        )
+
+
+def test_plasma_dispersion_function_derivative():
+    """Z'(z) = -2(1 + z·Z(z)) must match finite differences."""
+    from raytrax.math.faddeeva import (
+        plasma_dispersion_function,
+        plasma_dispersion_function_derivative,
+    )
+
+    z = jnp.linspace(-5, 5, 1000, dtype=jnp.complex128)
+    dx = z[1] - z[0]
+    Z = plasma_dispersion_function(z)
+    Z_prime = plasma_dispersion_function_derivative(z)
+    Z_prime_fd = (Z[2:] - Z[:-2]) / (2 * dx)
+    np.testing.assert_allclose(Z_prime[1:-1], Z_prime_fd, rtol=0, atol=1e-3)

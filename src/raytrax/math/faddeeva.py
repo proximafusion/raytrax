@@ -97,7 +97,7 @@ def wofz_jax(z):
     Wx = jnp.where(inner, Wx1, Wx2)
     Wy = jnp.where(inner, Wy1, Wy2)
 
-    # Im(z) = 0: w(t) = exp(-t²)
+    # Im(z) = 0: Re(w(t)) = exp(-t²)
     Wx = jnp.where(y == 0.0, jnp.exp(-x * x), Wx)
 
     # Odd symmetry in Re(z): Im(w(-x+iy)) = -Im(w(x+iy))
