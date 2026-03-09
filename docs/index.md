@@ -8,7 +8,7 @@ Raytrax is a Python library for the simulation of Electron Cyclotron Resonance H
 
 Raytrax employs the geometric optics (or WKB) approximation for microwave rays and solves the ray tracing equations to determine the ray trajectory. The energy absorption that determines the heating deposition is calculated relativistically. The physics approach closely follows the Travis[^1] code.
 
-Raytrax is released under the MIT License.
+Raytrax is released under the MIT License. If you use Raytrax in your research, please cite it via Zenodo: [doi:10.5281/zenodo.18924104](https://doi.org/10.5281/zenodo.18924104).
 
 !!! info
 

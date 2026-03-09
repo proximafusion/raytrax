@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+type: software
+title: "Raytrax: An ECRH Ray Tracer for Fusion Plasmas"
+authors:
+  - family-names: Straub
+    given-names: David M.
+    affiliation: "Munich University of Applied Sciences (HM), Munich, Germany"
+  - family-names: Guiraud
+    given-names: Enrico
+    affiliation: "Proxima Fusion GmbH, Munich, Germany"
+repository-code: "https://github.com/proximafusion/raytrax"
+doi: 10.5281/zenodo.18924104
+license: MIT

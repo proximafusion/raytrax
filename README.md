@@ -6,6 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python ≥ 3.11](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/)
 [![Documentation](https://img.shields.io/badge/docs-latest-informational)](https://proximafusion.github.io/raytrax/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18924104.svg)](https://doi.org/10.5281/zenodo.18924104)
 
 Raytrax simulates Electron Cyclotron Resonance Heating (ECRH) of magnetic confinement fusion plasmas. Powered by [JAX](https://docs.jax.dev), it features JIT-compiled ray tracing and automatic differentiation — making it well-suited for gradient-based beam optimization in fusion plant design.
 
@@ -79,6 +80,10 @@ python -m pip install raytrax
 ```
 
 See the [documentation](https://proximafusion.github.io/raytrax/) for a full getting-started guide, theory background, and API reference.
+
+## Citing Raytrax
+
+If you use Raytrax in your research, please cite it via Zenodo: [doi:10.5281/zenodo.18924104](https://doi.org/10.5281/zenodo.18924104)
 
 ## Acknowledgements
 
