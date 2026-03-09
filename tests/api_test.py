@@ -5,7 +5,7 @@ import numpy as np
 
 from raytrax.api import _bin_power_deposition, trace
 from raytrax.equilibrium.interpolate import MagneticConfiguration
-from raytrax.types import Beam, RadialProfiles
+from raytrax.types import Beam, RadialProfiles, TracerSettings
 
 
 def test_from_vmec_wout_w7x(w7x_wout):
@@ -97,6 +97,64 @@ def test_trace_w7x_beam(w7x_wout):
     assert hasattr(result, "radial_profile")
     assert result.beam_profile is not None
     assert result.radial_profile is not None
+
+
+def _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration):
+    """Shared setup for TracerSettings tests using the analytic tokamak fixture."""
+    R0 = 3.0
+    rho = jnp.linspace(0, 1, 40)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.5 * (1 - rho**2),
+        electron_temperature=3.0 * (1 - rho**2),
+    )
+    beam = Beam(
+        position=jnp.array([R0 + 0.8, 0.0, 0.0]),
+        direction=jnp.array([-1.0, 0.0, 0.0]),
+        frequency=140e9,
+        mode="O",
+        power=1e6,
+    )
+    return beam, profiles
+
+
+def test_tracer_settings_non_default_runs_under_jit(tokamak_magnetic_configuration):
+    """Non-default TracerSettings are accepted by trace() and produce finite results.
+
+    trace() calls trace_jitted internally, which is @jax.jit, so this exercises
+    that all TracerSettings fields are valid JAX pytree leaves.
+    """
+    beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+    settings = TracerSettings(
+        relative_tolerance=1e-5,
+        absolute_tolerance=1e-7,
+        max_step_size=0.02,
+        max_arc_length=15.0,
+    )
+
+    result = trace(tokamak_magnetic_configuration, profiles, beam, settings=settings)
+
+    assert jnp.isfinite(result.absorbed_power)
+    assert jnp.isfinite(result.optical_depth)
+
+
+def test_tracer_settings_max_arc_length_limits_trajectory(
+    tokamak_magnetic_configuration,
+):
+    """A short max_arc_length produces a shorter trajectory than the default."""
+    beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+
+    result_default = trace(tokamak_magnetic_configuration, profiles, beam)
+    result_short = trace(
+        tokamak_magnetic_configuration,
+        profiles,
+        beam,
+        settings=TracerSettings(max_arc_length=0.5),
+    )
+
+    default_length = float(result_default.beam_profile.arc_length[-1])
+    short_length = float(result_short.beam_profile.arc_length[-1])
+    assert short_length < default_length
 
 
 def test_bin_power_deposition():
