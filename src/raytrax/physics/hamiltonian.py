@@ -23,7 +23,28 @@ def hamiltonian(
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
 ) -> Float[jax.Array, ""]:
-    """Compute the Hamiltonian."""
+    r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_\mathrm{AH}^2(\boldsymbol{r}, \boldsymbol{n})$.
+
+    Rays propagate along level sets $\mathcal{H} = 0$. In vacuum
+    ($n_e < 10^{-6} \times 10^{20}\,\mathrm{m}^{-3}$) the trivial form
+    $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used; elsewhere the cold-plasma
+    Appleton-Hartree dispersion relation selects the O- or X-mode refractive index squared.
+
+    Args:
+        position: Cartesian position vector $\boldsymbol{r}$ in metres.
+        refractive_index: Refractive index vector $\boldsymbol{n} = c\boldsymbol{k}/\omega$.
+        magnetic_field_interpolator: Callable mapping a Cartesian position to the
+            magnetic field vector $\boldsymbol{B}$ in Tesla.
+        rho_interpolator: Callable mapping a Cartesian position to the normalised
+            effective radius $\rho \in [0, 1]$.
+        electron_density_profile_interpolator: Callable mapping $\rho$ to
+            the electron density in $10^{20}\,\mathrm{m}^{-3}$.
+        frequency: Wave frequency $f$ in Hz.
+        mode: Polarisation mode — `"O"` (ordinary) or `"X"` (extraordinary).
+
+    Returns:
+        Scalar value of the Hamiltonian. Zero on the dispersion surface.
+    """
     magnetic_field = magnetic_field_interpolator(position)
     rho = rho_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
@@ -43,16 +64,16 @@ def hamiltonian(
 
 
 hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1))
-hamiltonian_gradients.__doc__ = r"""Compute both Hamiltonian gradients (∂H/∂r, ∂H/∂N) in a single backward pass.
+r"""Compute both Hamiltonian gradients $(\partial \mathcal{H}/\partial \boldsymbol{r},\, \partial \mathcal{H}/\partial \boldsymbol{n})$ in a single backward pass.
 
-Signature mirrors :func:`hamiltonian`: ``(position, refractive_index,
+Signature mirrors `hamiltonian`: `(position, refractive_index,
 magnetic_field_interpolator, rho_interpolator,
-electron_density_profile_interpolator, frequency, mode)``.
+electron_density_profile_interpolator, frequency, mode)`.
 
-Returns a tuple ``(grad_r, grad_n)`` where ``grad_r = ∂H/∂r`` and
-``grad_n = ∂H/∂N``, computed in one shared forward+backward pass through the
-Hamiltonian, halving the number of B-interpolator evaluations compared to
-computing each gradient separately.
+Returns a tuple `(grad_r, grad_n)` where $\partial \mathcal{H}/\partial \boldsymbol{r}$
+and $\partial \mathcal{H}/\partial \boldsymbol{n}$ are computed in one shared
+forward+backward pass, halving the number of B-interpolator evaluations compared
+to computing each gradient separately.
 """
 
 
