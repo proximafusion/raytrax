@@ -15,38 +15,25 @@ def _shkarofsky_sequence(
     psi: ScalarFloat,
     phi: ScalarFloat,
     q_max: int,
-    *,
-    force_psi_zero: bool | None = None,
 ) -> list:
     """Compute F_{q+1/2} for q=0..q_max with a single iterative recurrence pass."""
     if q_max < 0:
         return []
 
-    if force_psi_zero is None:
-        is_psi_zero = jnp.abs(psi) < _PSI_TOLERANCE
+    is_psi_zero = jnp.abs(psi) < _PSI_TOLERANCE
 
-        # F_{1/2} and F_{3/2}, eqs. 29-30 of Krivensky and Orefice (psi != 0).
-        z_plus = Z(psi - phi)
-        z_minus = Z(-psi - phi)
-        f0_nonzero = -(z_plus + z_minus) / (2 * phi)
-        f1_nonzero = -(z_plus - z_minus) / (2 * psi)
+    # F_{1/2} and F_{3/2}, eqs. 29-30 of Krivensky and Orefice (psi != 0).
+    z_plus = Z(psi - phi)
+    z_minus = Z(-psi - phi)
+    f0_nonzero = -(z_plus + z_minus) / (2 * phi)
+    f1_nonzero = -(z_plus - z_minus) / (2 * psi)
 
-        # F_{1/2}, eq. 31. For F_{3/2} in the psi -> 0 limit we use -Z'(-phi);
-        # the original paper appears to have a sign typo for this term.
-        f0_zero = -Z(-phi) / phi
-        f1_zero = -Z_prime(-phi)
-        f0 = jnp.where(is_psi_zero, f0_zero, f0_nonzero)
-        f1 = jnp.where(is_psi_zero, f1_zero, f1_nonzero)
-    elif force_psi_zero:
-        is_psi_zero = True
-        f0 = -Z(-phi) / phi
-        f1 = -Z_prime(-phi)
-    else:
-        is_psi_zero = False
-        z_plus = Z(psi - phi)
-        z_minus = Z(-psi - phi)
-        f0 = -(z_plus + z_minus) / (2 * phi)
-        f1 = -(z_plus - z_minus) / (2 * psi)
+    # F_{1/2}, eq. 31. For F_{3/2} in the psi -> 0 limit we use -Z'(-phi);
+    # the original paper appears to have a sign typo for this term.
+    f0_zero = -Z(-phi) / phi
+    f1_zero = -Z_prime(-phi)
+    f0 = jnp.where(is_psi_zero, f0_zero, f0_nonzero)
+    f1 = jnp.where(is_psi_zero, f1_zero, f1_nonzero)
 
     if q_max == 0:
         return [f0]
@@ -64,13 +51,7 @@ def _shkarofsky_sequence(
         # psi -> 0 limit of eq. 26:
         # F_{q+1/2} = (phi^2 * F_{q-1/2} + 1) / (q - 1/2)
         f_zero = (phi**2 * f_prev1 + 1.0) / (q - 0.5)
-        if force_psi_zero is None:
-            f_q = jnp.where(is_psi_zero, f_zero, f_nonzero)
-        elif is_psi_zero:
-            f_q = f_zero
-        else:
-            f_q = f_nonzero
-
+        f_q = jnp.where(is_psi_zero, f_zero, f_nonzero)
         results.append(f_q)
         f_prev2 = f_prev1
         f_prev1 = f_q

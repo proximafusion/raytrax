@@ -141,13 +141,7 @@ TEST_DATA_F52 = [
 
 
 def _sequence_value(phi, psi, q):
-    force_psi_zero = psi == 0.0
-    return shkarofsky._shkarofsky_sequence(
-        psi,
-        phi,
-        q_max=q,
-        force_psi_zero=force_psi_zero,
-    )[q]
+    return shkarofsky._shkarofsky_sequence(psi, phi, q_max=q)[q]
 
 
 def test_shkarofsky_sequence_f12():
