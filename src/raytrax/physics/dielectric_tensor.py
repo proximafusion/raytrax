@@ -156,7 +156,7 @@ def weakly_relativistic_dielectric_tensor(
     return eye - mu * (w_p**2 / w**2) * D  # eq. (42)
 
 
-def a_shkarofsky(n, k):
+def a_shkarofsky(n: int, k: int):
     """The function a defined in eq. (32) of Shkarofsky [1].
 
     It is related to the function a in Krivenski and Orefice [2] by:
@@ -174,7 +174,7 @@ def a_shkarofsky(n, k):
     return sign * numerator / denominator
 
 
-def b_shkarofsky(n, k):
+def b_shkarofsky(n: int, k: int):
     """The analogon of the function b in Krivenski and Orefice [2] when using the
     function a defined in Shkarofsky [1].
 
