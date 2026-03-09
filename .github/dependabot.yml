@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      jax:
+        patterns:
+          - "jax*"
+      diffrax:
+        patterns:
+          - "diffrax"
+          - "interpax"
+          - "equinox"
+          - "optimistix"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
