@@ -168,7 +168,7 @@ def _right_hand_side(
     # Compute both Hamiltonian gradients in a single backward pass,
     # reusing B-field, rho, and ne from the forward pass (has_aux=True).
     (hamiltonian_gradient_r, hamiltonian_gradient_n), (mag, rho, ne) = (
-        hamiltonian.hamiltonian_gradients_with_aux(
+        hamiltonian.hamiltonian_gradients(
             state.position,
             state.refractive_index,
             eval_B,

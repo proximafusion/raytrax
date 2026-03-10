@@ -22,7 +22,10 @@ def hamiltonian(
     ],
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
-) -> Float[jax.Array, ""]:
+) -> tuple[
+    Float[jax.Array, ""],
+    tuple[Float[jax.Array, "3"], Float[jax.Array, ""], Float[jax.Array, ""]],
+]:
     r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_\mathrm{AH}^2(\boldsymbol{r}, \boldsymbol{n})$.
 
     Rays propagate along level sets $\mathcal{H} = 0$. In vacuum
@@ -48,7 +51,7 @@ def hamiltonian(
     magnetic_field = magnetic_field_interpolator(position)
     rho = rho_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
-    return jax.lax.cond(
+    H = jax.lax.cond(
         electron_density_1e20_per_m3 < 1e-6,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
@@ -61,68 +64,23 @@ def hamiltonian(
             mode=mode,
         ),
     )
+    return H, (magnetic_field, rho, electron_density_1e20_per_m3)
 
 
-hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1))
+hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1), has_aux=True)
 r"""Compute both Hamiltonian gradients $(\partial \mathcal{H}/\partial \boldsymbol{r},\, \partial \mathcal{H}/\partial \boldsymbol{n})$ in a single backward pass.
 
 Signature mirrors `hamiltonian`: `(position, refractive_index,
 magnetic_field_interpolator, rho_interpolator,
 electron_density_profile_interpolator, frequency, mode)`.
 
-Returns a tuple `(grad_r, grad_n)` where $\partial \mathcal{H}/\partial \boldsymbol{r}$
+Returns a tuple ``((grad_r, grad_n), (magnetic_field, rho, electron_density))``
+where $\partial \mathcal{H}/\partial \boldsymbol{r}$
 and $\partial \mathcal{H}/\partial \boldsymbol{n}$ are computed in one shared
 forward+backward pass, halving the number of B-interpolator evaluations compared
 to computing each gradient separately.
-"""
-
-
-def _hamiltonian_with_aux(
-    position: Float[jax.Array, "3"],
-    refractive_index: Float[jax.Array, "3"],
-    magnetic_field_interpolator: Callable[
-        [Float[jax.Array, "3"]], Float[jax.Array, "3"]
-    ],
-    rho_interpolator: Callable[[Float[jax.Array, "3"]], Float[jax.Array, ""]],
-    electron_density_profile_interpolator: Callable[
-        [Float[jax.Array, ""]], Float[jax.Array, ""]
-    ],
-    frequency: Float[jax.Array, ""],
-    mode: Literal["X", "O"],
-) -> tuple[
-    Float[jax.Array, ""],
-    tuple[Float[jax.Array, "3"], Float[jax.Array, ""], Float[jax.Array, ""]],
-]:
-    """Hamiltonian that also returns (B, rho, ne) as auxiliary outputs.
-
-    Used with ``jax.grad(..., has_aux=True)`` so that the forward-pass
-    intermediates are available without redundant interpolator calls.
-    """
-    magnetic_field = magnetic_field_interpolator(position)
-    rho = rho_interpolator(position)
-    electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
-    H = jax.lax.cond(
-        electron_density_1e20_per_m3 < 1e-6,
-        lambda: _hamiltonian_vacuum(refractive_index=refractive_index),
-        lambda: _hamiltonian_cold(
-            refractive_index=refractive_index,
-            magnetic_field=magnetic_field,
-            electron_density_1e20_per_m3=electron_density_1e20_per_m3,
-            frequency=frequency,
-            mode=mode,
-        ),
-    )
-    return H, (magnetic_field, rho, electron_density_1e20_per_m3)
-
-
-hamiltonian_gradients_with_aux = jax.grad(
-    _hamiltonian_with_aux, argnums=(0, 1), has_aux=True
-)
-r"""Like :data:`hamiltonian_gradients` but also returns forward-pass intermediates.
-
-Returns ``((grad_r, grad_n), (magnetic_field, rho, electron_density))`` in a
-single forward+backward pass, eliminating the need to re-evaluate the B-field
-and rho interpolators after computing the Hamiltonian gradients.
+The internally computed quantities (magnetic_field, rho, electron_density) are
+returned as aux data, which is not differentiated.
 """
 
 
