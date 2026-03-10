@@ -24,16 +24,15 @@ def test_maxwell_juettner_normalization():
     Tests several temperatures spanning non-relativistic to mildly relativistic
     regimes (:math:`\mu = 2/v_{th}^2` from ~22 to ~200).
     """
+    jitted_maxwell_juettner_distribution = jax.jit(
+        distribution_function.maxwell_juettner_distribution
+    )
     # v_th/c values corresponding to T ≈ 2.5, 10, 23 keV
     for thermal_velocity in [0.1, 0.2, 0.3]:
 
         def integrand(u):
             gamma = np.sqrt(1 + u**2)
-            f = float(
-                distribution_function.maxwell_juettner_distribution(
-                    gamma, thermal_velocity
-                )
-            )
+            f = float(jitted_maxwell_juettner_distribution(gamma, thermal_velocity))
             return 4 * np.pi * u**2 * f
 
         result, _ = quad(integrand, 0, np.inf)
