@@ -9,6 +9,7 @@ to cylindrical coordinates ($r$, $\phi$, $z$).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -32,6 +33,7 @@ from .fourier import (
 )
 
 
+@jax.tree_util.register_dataclass
 @dataclass
 class MagneticConfiguration(SafetensorsMixin):
     r"""Magnetic configuration and geometry on a cylindrical grid.
@@ -50,10 +52,10 @@ class MagneticConfiguration(SafetensorsMixin):
     rho: jt.Float[jax.Array, " npoints"]
     """The normalized effective minor radius at each point on the interpolation grid."""
 
-    nfp: int
+    nfp: int = dataclass_field(metadata={"static": True})
     """Number of field periods (toroidal periodicity)."""
 
-    is_stellarator_symmetric: bool
+    is_stellarator_symmetric: bool = dataclass_field(metadata={"static": True})
     """Whether the configuration has stellarator symmetry."""
 
     rho_1d: jt.Float[jax.Array, " nrho_1d"]
@@ -62,7 +64,7 @@ class MagneticConfiguration(SafetensorsMixin):
     dvolume_drho: jt.Float[jax.Array, " nrho_1d"]
     r"""Volume derivative $dV/d\rho$ on the 1D radial grid."""
 
-    is_axisymmetric: bool = False
+    is_axisymmetric: bool = dataclass_field(default=False, metadata={"static": True})
     """Whether the configuration is axisymmetric (tokamak) or 3D (stellarator)."""
 
     @classmethod

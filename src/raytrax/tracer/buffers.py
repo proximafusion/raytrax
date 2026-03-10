@@ -1,12 +1,14 @@
 """JAX pytree types for the ODE solver: Interpolators (field/profile inputs) and TraceBuffers (padded output arrays)."""
 
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 
 import interpax
 import jax
 import jaxtyping as jt
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class Interpolators:
     """Bundle of interpolation functions for ray tracing.
@@ -27,26 +29,11 @@ class Interpolators:
     electron_temperature: interpax.Interpolator1D
     """Interpolator for Te(rho)."""
 
-    is_axisymmetric: bool = False
+    is_axisymmetric: bool = dataclass_field(default=False, metadata={"static": True})
     """Whether the equilibrium is axisymmetric (tokamak). Stored in pytree aux_data."""
 
 
-jax.tree_util.register_pytree_node(
-    Interpolators,
-    lambda i: (
-        (i.magnetic_field, i.rho, i.electron_density, i.electron_temperature),
-        (i.is_axisymmetric,),
-    ),
-    lambda aux, children: Interpolators(
-        magnetic_field=children[0],
-        rho=children[1],
-        electron_density=children[2],
-        electron_temperature=children[3],
-        is_axisymmetric=aux[0],
-    ),
-)
-
-
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class TraceBuffers:
     """Raw output from the JIT-compiled trace, before trimming padded buffers.
@@ -64,33 +51,3 @@ class TraceBuffers:
     absorption_coefficient: jt.Float[jax.Array, " nsteps"]
     linear_power_density: jt.Float[jax.Array, " nsteps"]
     volumetric_power_density: jt.Float[jax.Array, " nsteps"]
-
-
-jax.tree_util.register_pytree_node(
-    TraceBuffers,
-    lambda r: (
-        (
-            r.arc_length,
-            r.ode_state,
-            r.magnetic_field,
-            r.normalized_effective_radius,
-            r.electron_density,
-            r.electron_temperature,
-            r.absorption_coefficient,
-            r.linear_power_density,
-            r.volumetric_power_density,
-        ),
-        None,
-    ),
-    lambda _, children: TraceBuffers(
-        arc_length=children[0],
-        ode_state=children[1],
-        magnetic_field=children[2],
-        normalized_effective_radius=children[3],
-        electron_density=children[4],
-        electron_temperature=children[5],
-        absorption_coefficient=children[6],
-        linear_power_density=children[7],
-        volumetric_power_density=children[8],
-    ),
-)

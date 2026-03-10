@@ -1,6 +1,7 @@
 """Public data types for the raytrax API: beam inputs, trace outputs, and shared utilities."""
 
 from dataclasses import dataclass, fields
+from dataclasses import field as dataclass_field
 from typing import Any, Literal, TypeVar
 
 import jax
@@ -75,6 +76,7 @@ class SafetensorsMixin:
         return cls(**field_values)
 
 
+@jax.tree_util.register_dataclass
 @dataclass
 class Beam:
     """Beam parameter inputs for tracing."""
@@ -88,13 +90,14 @@ class Beam:
     frequency: jt.Float[jax.Array, ""]
     """The frequency of the beam in Hz (not GHz!)."""
 
-    mode: Literal["X", "O"]
+    mode: Literal["X", "O"] = dataclass_field(metadata={"static": True})
     """The polarization mode of the beam, either `"X"` for extraordinary or `"O"` for ordinary mode."""
 
     power: float
     """The initial power of the beam in W (not MW!)."""
 
 
+@jax.tree_util.register_dataclass
 @dataclass
 class BeamProfile:
     """Beam profile in real space resulting from tracing."""
@@ -130,6 +133,7 @@ class BeamProfile:
     """The linear power density along the beam."""
 
 
+@jax.tree_util.register_dataclass
 @dataclass
 class RadialProfile:
     """Beam profile in radial coordinates."""
@@ -141,6 +145,7 @@ class RadialProfile:
     """The volumetric power density in W/m³."""
 
 
+@jax.tree_util.register_dataclass
 @dataclass
 class TraceResult:
     """The result of a ray tracing calculation."""
@@ -167,6 +172,7 @@ class TraceResult:
     r"""Flux-surface-volume-weighted standard deviation of $\rho$ for power deposition."""
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class TracerSettings:
     """Settings for the ray tracing ODE solver.
@@ -191,26 +197,7 @@ class TracerSettings:
     """Maximum arc length to integrate in metres before the solver gives up."""
 
 
-jax.tree_util.register_pytree_node(
-    TracerSettings,
-    lambda s: (
-        (
-            s.relative_tolerance,
-            s.absolute_tolerance,
-            s.max_step_size,
-            s.max_arc_length,
-        ),
-        None,
-    ),
-    lambda _, children: TracerSettings(
-        relative_tolerance=children[0],
-        absolute_tolerance=children[1],
-        max_step_size=children[2],
-        max_arc_length=children[3],
-    ),
-)
-
-
+@jax.tree_util.register_dataclass
 @dataclass
 class RadialProfiles:
     r"""Radial profiles of electron density and temperature.
