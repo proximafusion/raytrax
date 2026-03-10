@@ -1,5 +1,8 @@
 """Shkarofsky integral functions F_{q+1/2}(s) for the warm plasma dielectric tensor."""
 
+import functools
+
+import jax
 import jax.numpy as jnp
 
 from raytrax.math.faddeeva import plasma_dispersion_function as Z
@@ -11,6 +14,7 @@ from raytrax.types import ScalarFloat
 _PSI_TOLERANCE = 1e-6  # Tolerance for checking if psi is zero
 
 
+@functools.partial(jax.jit, static_argnames=["q_max"])
 def _shkarofsky_sequence(
     psi: ScalarFloat,
     phi: ScalarFloat,
