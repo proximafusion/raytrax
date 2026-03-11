@@ -1,13 +1,21 @@
 """Cold plasma ray-tracing Hamiltonian and its gradients ∂H/∂r, ∂H/∂N."""
 
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, NamedTuple
 
 import jax
 import jax.numpy as jnp
 from jaxtyping import Float
 
 from raytrax.physics import dispersion, quantities
+
+
+class HamiltonianAux(NamedTuple):
+    """Auxiliary quantities computed alongside the Hamiltonian value."""
+
+    magnetic_field: Float[jax.Array, "3"]
+    rho: Float[jax.Array, ""]
+    electron_density_1e20_per_m3: Float[jax.Array, ""]
 
 
 def hamiltonian(
@@ -22,7 +30,10 @@ def hamiltonian(
     ],
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
-) -> Float[jax.Array, ""]:
+) -> tuple[
+    Float[jax.Array, ""],
+    HamiltonianAux,
+]:
     r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_\mathrm{AH}^2(\boldsymbol{r}, \boldsymbol{n})$.
 
     Rays propagate along level sets $\mathcal{H} = 0$. In vacuum
@@ -48,7 +59,7 @@ def hamiltonian(
     magnetic_field = magnetic_field_interpolator(position)
     rho = rho_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
-    return jax.lax.cond(
+    H = jax.lax.cond(
         electron_density_1e20_per_m3 < 1e-6,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
@@ -61,19 +72,28 @@ def hamiltonian(
             mode=mode,
         ),
     )
+    return H, HamiltonianAux(
+        magnetic_field=magnetic_field,
+        rho=rho,
+        electron_density_1e20_per_m3=electron_density_1e20_per_m3,
+    )
 
 
-hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1))
+hamiltonian_gradients = jax.grad(hamiltonian, argnums=(0, 1), has_aux=True)
 r"""Compute both Hamiltonian gradients $(\partial \mathcal{H}/\partial \boldsymbol{r},\, \partial \mathcal{H}/\partial \boldsymbol{n})$ in a single backward pass.
 
 Signature mirrors `hamiltonian`: `(position, refractive_index,
 magnetic_field_interpolator, rho_interpolator,
 electron_density_profile_interpolator, frequency, mode)`.
 
-Returns a tuple `(grad_r, grad_n)` where $\partial \mathcal{H}/\partial \boldsymbol{r}$
+Returns a tuple ``((grad_r, grad_n), HamiltonianAux(...))``
+where $\partial \mathcal{H}/\partial \boldsymbol{r}$
 and $\partial \mathcal{H}/\partial \boldsymbol{n}$ are computed in one shared
 forward+backward pass, halving the number of B-interpolator evaluations compared
 to computing each gradient separately.
+The internally computed quantities (`magnetic_field`, `rho`,
+`electron_density_1e20_per_m3`) are
+returned as aux data, which is not differentiated.
 """
 
 
