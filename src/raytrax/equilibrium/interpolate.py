@@ -33,6 +33,56 @@ from .fourier import (
 )
 
 
+@dataclass
+class CylindricalGridResolution:
+    """Output cylindrical grid resolution, shared by all equilibrium importers.
+
+    Defines the $(R, \\phi, Z)$ cylindrical grid on which the magnetic
+    configuration is stored and the ray tracer interpolates. For axisymmetric
+    (tokamak) configurations ``n_phi`` is ignored.
+
+    Attributes:
+        n_r: Number of grid points along the major radius $R$.
+        n_z: Number of grid points along the vertical coordinate $Z$.
+        n_phi: Number of toroidal planes $\\phi$. Ignored for axisymmetric
+            configurations.
+        n_rho_profile: Number of radial points for the 1-D $dV/d\\rho$ profile.
+    """
+
+    n_r: int = 45
+    n_z: int = 55
+    n_phi: int = 50
+    n_rho_profile: int = 200
+
+
+@dataclass
+class VmecGridResolution:
+    """Grid resolution for VMEC-based equilibrium imports.
+
+    Combines the shared :class:`CylindricalGridResolution` output grid with
+    VMEC-specific intermediate flux-coordinate sampling parameters.
+
+    The VMEC pipeline first evaluates Fourier series on an intermediate
+    curvilinear $(\\rho, \\theta, \\phi)$ grid, then scatter-interpolates the
+    result onto the cylindrical output grid. The intermediate grid parameters
+    ``n_rho`` and ``n_theta`` control the accuracy of that Fourier evaluation
+    step; they are invisible to the ray tracer.
+
+    Attributes:
+        cylindrical: Output cylindrical grid shared with all other importers.
+        n_rho: Number of radial (flux-surface) points on the intermediate
+            VMEC curvilinear grid.
+        n_theta: Number of poloidal points on the intermediate VMEC
+            curvilinear grid.
+    """
+
+    cylindrical: CylindricalGridResolution = dataclass_field(
+        default_factory=CylindricalGridResolution
+    )
+    n_rho: int = 40
+    n_theta: int = 45
+
+
 @jax.tree_util.register_dataclass
 @dataclass
 class MagneticConfiguration(SafetensorsMixin):
@@ -72,6 +122,7 @@ class MagneticConfiguration(SafetensorsMixin):
         cls,
         equilibrium: WoutLike,
         magnetic_field_scale: float = 1.0,
+        grid: VmecGridResolution | None = None,
     ) -> MagneticConfiguration:
         """Create a MagneticConfiguration from a VMEC++ equilibrium.
 
@@ -81,21 +132,29 @@ class MagneticConfiguration(SafetensorsMixin):
         Args:
             equilibrium: an MHD equilibrium compatible with `vmecpp.VmecWOut`
             magnetic_field_scale: Factor to multiply all magnetic field values by.
+            grid: Grid resolution settings. Defaults to
+                :class:`VmecGridResolution` with its default values.
 
         Returns:
             A MagneticConfiguration object containing interpolation data.
         """
+        if grid is None:
+            grid = VmecGridResolution()
 
-        # TODO add settings for grid resolution
         interpolated_array = cylindrical_grid_for_equilibrium(
-            equilibrium=equilibrium, n_rho=40, n_theta=45, n_phi=50, n_r=45, n_z=55
+            equilibrium=equilibrium,
+            n_rho=grid.n_rho,
+            n_theta=grid.n_theta,
+            n_phi=grid.cylindrical.n_phi,
+            n_r=grid.cylindrical.n_r,
+            n_z=grid.cylindrical.n_z,
         )
         rphiz = interpolated_array[..., :3]
         rho = interpolated_array[..., 3]
         magnetic_field = interpolated_array[..., 4:] * magnetic_field_scale
 
         # Compute volume derivative on 1D radial grid
-        rho_1d = jnp.linspace(0, 1, 200)
+        rho_1d = jnp.linspace(0, 1, grid.cylindrical.n_rho_profile)
         dv_drho = compute_dvolume_drho(equilibrium, rho_1d)
 
         return cls(

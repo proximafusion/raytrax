@@ -4,7 +4,9 @@ import numpy as np
 
 from raytrax.equilibrium.fourier import evaluate_rphiz_on_toroidal_grid
 from raytrax.equilibrium.interpolate import (
+    CylindricalGridResolution,
     MagneticConfiguration,
+    VmecGridResolution,
     build_electron_density_profile_interpolator,
     build_electron_temperature_profile_interpolator,
     build_magnetic_field_interpolator,
@@ -184,6 +186,24 @@ def test_cylindrical_grid_for_equilibrium(torus_wout):
     if len(finite_z) > 0:
         assert np.min(finite_z) >= -minor_radius * 1.2
         assert np.max(finite_z) <= minor_radius * 1.2
+
+
+def test_from_vmec_wout_custom_grid_resolution(torus_wout):
+    """Array shapes match a non-default VmecGridResolution."""
+    grid = VmecGridResolution(
+        cylindrical=CylindricalGridResolution(
+            n_r=11, n_z=13, n_phi=7, n_rho_profile=50
+        ),
+        n_rho=8,
+        n_theta=9,
+    )
+    mag_conf = MagneticConfiguration.from_vmec_wout(torus_wout, grid=grid)
+
+    assert mag_conf.rphiz.shape == (11, 7, 13, 3)
+    assert mag_conf.magnetic_field.shape == (11, 7, 13, 3)
+    assert mag_conf.rho.shape == (11, 7, 13)
+    assert mag_conf.rho_1d.shape == (50,)
+    assert mag_conf.dvolume_drho.shape == (50,)
 
 
 def test_build_magnetic_field_interpolator_w7x(w7x_wout):
