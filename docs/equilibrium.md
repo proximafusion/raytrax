@@ -41,3 +41,23 @@ Once you have the `VmecWOut` object, you can create a [`MagneticConfiguration`][
 ```python
 mag_conf = raytrax.MagneticConfiguration.from_vmec_wout(vmec_wout)
 ```
+
+#### Tuning grid resolution
+
+The import involves two grids: an intermediate curvilinear grid in VMEC flux coordinates $(\rho, \theta, \phi)$ on which the Fourier series are evaluated, and the final cylindrical grid $(R, \phi, Z)$ on which the ray tracer operates. Both are controlled via [`VmecGridResolution`][raytrax.equilibrium.interpolate.VmecGridResolution]:
+
+```python
+grid = raytrax.VmecGridResolution(
+    cylindrical=raytrax.CylindricalGridResolution(
+        n_r=60,    # R points on the output cylindrical grid
+        n_z=70,    # Z points on the output cylindrical grid
+        n_phi=64,  # toroidal planes on the output cylindrical grid
+        n_rho_profile=200,  # points for the 1-D dV/dρ profile
+    ),
+    n_rho=50,    # radial flux surfaces on the intermediate VMEC grid
+    n_theta=60,  # poloidal points on the intermediate VMEC grid
+)
+mag_conf = raytrax.MagneticConfiguration.from_vmec_wout(vmec_wout, grid=grid)
+```
+
+The defaults (`n_r=45`, `n_z=55`, `n_phi=50`, `n_rho=40`, `n_theta=45`) are adequate for most stellarator geometries. Increasing them improves accuracy at the cost of memory and import time, which scales roughly as $n_r \cdot n_\phi \cdot n_z$.
