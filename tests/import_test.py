@@ -24,6 +24,7 @@ if initialized:
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
+        timeout=120,
         text=True,
     )
     assert result.returncode == 0, (
