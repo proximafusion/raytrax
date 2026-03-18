@@ -197,7 +197,7 @@ def plot_beamtrace_rz(
     p_seg = 0.5 * (p[:-1] + p[1:])
 
     kwargs.pop("color", None)  # colour is set by cmap
-    lc = LineCollection(segments.tolist(), cmap="plasma", **kwargs)
+    lc = LineCollection(segments, cmap="plasma", **kwargs)  # type: ignore[arg-type]
     lc.set_array(p_seg)
     ax.add_collection(lc)
     ax.autoscale()
