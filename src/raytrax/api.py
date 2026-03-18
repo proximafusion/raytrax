@@ -156,8 +156,6 @@ def _run_trace(
         setting,
         interpolators,
         magnetic_configuration.nfp,
-        magnetic_configuration.rho_1d,
-        magnetic_configuration.dvolume_drho,
         settings,
     )
 

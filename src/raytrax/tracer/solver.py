@@ -311,26 +311,6 @@ def _compute_beam_diagnostics(
     )
 
 
-def _compute_radial_profile(
-    ts: jt.Float[jax.Array, " nsteps"],
-    rho_all: jt.Float[jax.Array, " nsteps"],
-    P_all: jt.Float[jax.Array, " nsteps"],
-    rho_1d: jt.Float[jax.Array, " nrho"],
-    dvolume_drho: jt.Float[jax.Array, " nrho"],
-) -> jt.Float[jax.Array, " nsteps"]:
-    """Compute volumetric power density dP/dV from finite differences on rho."""
-    ds = jnp.diff(ts)
-    drho_ds = jnp.diff(rho_all) / jnp.where(ds > 0, ds, 1.0)
-    drho_ds_padded = jnp.concatenate([drho_ds[:1], drho_ds, drho_ds[-1:]])
-    drho_ds_avg = 0.5 * (drho_ds_padded[:-1] + drho_ds_padded[1:])
-
-    dV_drho = interpax.interp1d(
-        rho_all, rho_1d, dvolume_drho, method="cubic", extrap=True
-    )
-    dP_drho = P_all / jnp.where(jnp.abs(drho_ds_avg) > 0, jnp.abs(drho_ds_avg), 1.0)
-    return dP_drho / jnp.where(jnp.abs(dV_drho) > 0, dV_drho, 1.0)
-
-
 @jax.jit
 def trace_jitted(
     position: jt.Float[jax.Array, "3"],
@@ -338,11 +318,9 @@ def trace_jitted(
     setting: ray.RaySetting,
     interpolators: Interpolators,
     nfp: int,
-    rho_1d: jt.Float[jax.Array, " nrho"],
-    dvolume_drho: jt.Float[jax.Array, " nrho"],
     tracer_settings: TracerSettings = TracerSettings(),
 ) -> tuple[TraceBuffers, jax.Array]:
-    """Fully JIT-compiled ray trace: ODE solve + diagnostics + radial profile.
+    """Fully JIT-compiled ray trace: ODE solve + diagnostics.
 
     Returns ``(TraceBuffers, n_valid)`` where ``n_valid`` is the number of
     valid (finite) arc-length entries.  TraceBuffers arrays have shape
@@ -354,9 +332,6 @@ def trace_jitted(
     ts = cast(jax.Array, sol.ts)
     ys = cast(jax.Array, sol.ys)
     diag = _compute_beam_diagnostics(ts, ys, interpolators, nfp)
-    dP_dV = _compute_radial_profile(
-        ts, diag.rho, diag.linear_power_density, rho_1d, dvolume_drho
-    )
     n_valid = jnp.sum(jnp.isfinite(ts)).astype(jnp.int32)
     return (
         TraceBuffers(
@@ -368,7 +343,6 @@ def trace_jitted(
             electron_temperature=diag.electron_temperature,
             absorption_coefficient=diag.absorption_coefficient,
             linear_power_density=diag.linear_power_density,
-            volumetric_power_density=dP_dV,
         ),
         n_valid,
     )

@@ -50,4 +50,3 @@ class TraceBuffers:
     electron_temperature: jt.Float[jax.Array, " nsteps"]
     absorption_coefficient: jt.Float[jax.Array, " nsteps"]
     linear_power_density: jt.Float[jax.Array, " nsteps"]
-    volumetric_power_density: jt.Float[jax.Array, " nsteps"]
