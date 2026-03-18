@@ -51,12 +51,14 @@ def _apply_B_stellarator_symmetry(
     B_cyl: jt.Float[jax.Array, "3"],
     in_second_half: jt.Bool[jax.Array, ""],
 ) -> jt.Float[jax.Array, "3"]:
-    """Apply stellarator symmetry to cylindrical B field components.
+    """Apply stellarator symmetry to recover B at the original point from its mirror.
 
-    When phi is in the second half of a field period, the grid was queried at the
-    mirror point (phi_mapped, -z). Under stellarator symmetry (rho->rho,
-    phi->-phi, z->-z), B_R is odd (changes sign) while B_phi and B_Z are even
-    (unchanged). See eq. 6.9 in arXiv:2502.04374.
+    The grid covers only the fundamental domain [0, pi/nfp].  For phi in the
+    second half of a field period the grid was queried at the mirror point
+    (phi_mapped, -z).  Stellarator symmetry (phi->-phi, z->-z) gives
+    B_R(-phi,-z) = -B_R(phi,z) and B_phi(-phi,-z) = B_phi(phi,z),
+    B_Z(-phi,-z) = B_Z(phi,z) (eq. 6.9 in arXiv:2502.04374), so B_R from the
+    grid must be sign-flipped to recover the field at the original point.
 
     Args:
         B_cyl: Cylindrical (B_R, B_phi, B_Z) from the grid at the mirror point
