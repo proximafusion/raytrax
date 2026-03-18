@@ -36,8 +36,9 @@ def _bin_power_deposition(
 ) -> jt.Float[jax.Array, " nrho"]:
     """Compute differentiable volumetric power deposition profile from ray trajectory.
 
-    The ODE solver produces O(50) sparse trajectory points.  Directly binning
-    them yields a jagged staircase profile.  Instead we:
+    The ODE solver produces up to max_steps+1 arc-length points; unvisited slots
+    (after an early-exit event) are left as inf by diffrax.  Instead of binning
+    directly we:
 
     1. Sanitize inf padding (diffrax fills unused sol.ys slots with inf).
     2. Linearly interpolate rho(s) and τ(s) to _N_INTERP uniformly-spaced
@@ -155,8 +156,6 @@ def _run_trace(
         setting,
         interpolators,
         magnetic_configuration.nfp,
-        magnetic_configuration.rho_1d,
-        magnetic_configuration.dvolume_drho,
         settings,
     )
 
@@ -183,11 +182,12 @@ def trace(
     Returns:
         TraceResult with beam profile and radial deposition profile.
     """
-    result, num_accepted_steps = _run_trace(
+    result, n_valid = _run_trace(
         magnetic_configuration, radial_profiles, beam, settings
     )
 
     if not trim:
+        # n_valid unused: trim=False returns the full padded buffer.
         beam_profile = BeamProfile(
             position=result.ode_state[:, :3],
             arc_length=result.arc_length,
@@ -231,8 +231,9 @@ def trace(
             deposition_rho_std=rho_std,
         )
 
-    # Slot 0 is the antenna position (SaveAt t0=True); accepted steps follow.
-    n = num_accepted_steps.item() + 1
+    # Trim to valid (finite) arc-length entries; diffrax leaves unvisited
+    # SaveAt slots as inf after an early-exit event.
+    n = int(n_valid.item())
 
     beam_profile = BeamProfile(
         position=result.ode_state[:n, :3],

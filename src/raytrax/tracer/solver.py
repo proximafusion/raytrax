@@ -54,8 +54,9 @@ def _apply_B_stellarator_symmetry(
     """Apply stellarator symmetry to cylindrical B field components.
 
     When phi is in the second half of a field period, the grid was queried at the
-    mirror point (phi_mapped, -z). Under stellarator symmetry, B_R is odd
-    (changes sign) while B_phi and B_Z are even (unchanged).
+    mirror point (phi_mapped, -z). Under stellarator symmetry (rho->rho,
+    phi->-phi, z->-z), B_R is odd (changes sign) while B_phi and B_Z are even
+    (unchanged). See eq. 6.9 in arXiv:2502.04374.
 
     Args:
         B_cyl: Cylindrical (B_R, B_phi, B_Z) from the grid at the mirror point
@@ -218,7 +219,6 @@ _event = diffrax.Event(
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
 _solver = diffrax.Tsit5()
-_saveat = diffrax.SaveAt(steps=True, t0=True)
 
 
 def _solve(
@@ -234,6 +234,10 @@ def _solve(
     Starts from `position` directly. The vacuum region (ne=0, rho>1) is handled
     automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne<1e-6,
     giving straight-line propagation until the beam enters plasma.
+
+    Output is saved at every accepted step (plus t0).  After an early-exit
+    event, diffrax leaves unvisited SaveAt slots as inf; sol.t1 is always the
+    scheduled t1 (max_arc_length), not the event time.
     """
     stepsize_controller = diffrax.PIDController(
         rtol=tracer_settings.relative_tolerance,
@@ -249,7 +253,7 @@ def _solve(
         dt0=0.001,
         y0=y0,
         args=(setting, interpolators, nfp, tracer_settings),
-        saveat=_saveat,
+        saveat=diffrax.SaveAt(steps=True, t0=True),
         stepsize_controller=stepsize_controller,
         event=_event,
         max_steps=4096,
@@ -301,26 +305,6 @@ def _compute_beam_diagnostics(
     )
 
 
-def _compute_radial_profile(
-    ts: jt.Float[jax.Array, " nsteps"],
-    rho_all: jt.Float[jax.Array, " nsteps"],
-    P_all: jt.Float[jax.Array, " nsteps"],
-    rho_1d: jt.Float[jax.Array, " nrho"],
-    dvolume_drho: jt.Float[jax.Array, " nrho"],
-) -> jt.Float[jax.Array, " nsteps"]:
-    """Compute volumetric power density dP/dV from finite differences on rho."""
-    ds = jnp.diff(ts)
-    drho_ds = jnp.diff(rho_all) / jnp.where(ds > 0, ds, 1.0)
-    drho_ds_padded = jnp.concatenate([drho_ds[:1], drho_ds, drho_ds[-1:]])
-    drho_ds_avg = 0.5 * (drho_ds_padded[:-1] + drho_ds_padded[1:])
-
-    dV_drho = interpax.interp1d(
-        rho_all, rho_1d, dvolume_drho, method="cubic", extrap=True
-    )
-    dP_drho = P_all / jnp.where(jnp.abs(drho_ds_avg) > 0, jnp.abs(drho_ds_avg), 1.0)
-    return dP_drho / jnp.where(jnp.abs(dV_drho) > 0, dV_drho, 1.0)
-
-
 @jax.jit
 def trace_jitted(
     position: jt.Float[jax.Array, "3"],
@@ -328,26 +312,21 @@ def trace_jitted(
     setting: ray.RaySetting,
     interpolators: Interpolators,
     nfp: int,
-    rho_1d: jt.Float[jax.Array, " nrho"],
-    dvolume_drho: jt.Float[jax.Array, " nrho"],
     tracer_settings: TracerSettings = TracerSettings(),
 ) -> tuple[TraceBuffers, jax.Array]:
-    """Fully JIT-compiled ray trace: ODE solve + diagnostics + radial profile.
+    """Fully JIT-compiled ray trace: ODE solve + diagnostics.
 
-    Returns (TraceBuffers, num_accepted_steps). TraceBuffers arrays are padded to
-    max_steps=4096; slot 0 is the antenna position (t0 save). The caller trims to
-    num_accepted_steps + 1 valid entries.
+    Returns ``(TraceBuffers, n_valid)`` where ``n_valid`` is the number of
+    valid (finite) arc-length entries.  TraceBuffers arrays have shape
+    ``(max_steps + 1,)``; entries after the event are left as ``inf`` by diffrax
+    (unvisited SaveAt slots).  The caller trims to the first ``n_valid``
+    entries.
     """
     sol = _solve(position, direction, setting, interpolators, nfp, tracer_settings)
-    # sol.ts and sol.ys are Array | None in diffrax's type stubs (diffrax can't
-    # statically see SaveAt(steps=True, t0=True)), but we always use that SaveAt,
-    # so they are always arrays here.
     ts = cast(jax.Array, sol.ts)
     ys = cast(jax.Array, sol.ys)
     diag = _compute_beam_diagnostics(ts, ys, interpolators, nfp)
-    dP_dV = _compute_radial_profile(
-        ts, diag.rho, diag.linear_power_density, rho_1d, dvolume_drho
-    )
+    n_valid = jnp.sum(jnp.isfinite(ts)).astype(jnp.int32)
     return (
         TraceBuffers(
             arc_length=ts,
@@ -358,7 +337,6 @@ def trace_jitted(
             electron_temperature=diag.electron_temperature,
             absorption_coefficient=diag.absorption_coefficient,
             linear_power_density=diag.linear_power_density,
-            volumetric_power_density=dP_dV,
         ),
-        sol.stats["num_accepted_steps"],
+        n_valid,
     )
