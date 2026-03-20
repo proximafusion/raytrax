@@ -456,7 +456,8 @@ def quasilinear_diffusion_coefficient(
     )
 
     # k_perp * rho_Larmor: k_perp = n_perp * omega / c,  rho_e = p_perp / (omega_c * m_0)
-    # => kperp_rho = N_perp * u_perp * freq / w_ce  (always positive)
+    # => kperp_rho = N_perp * u_perp * freq / omega_ce  (non-negative: all factors are
+    #    non-negative because cyclotron_frequency is passed as a positive magnitude)
     kperp_rho = (
         refractive_index_perp * perpendicular_momentum * frequency / cyclotron_frequency
     )

@@ -56,39 +56,3 @@ def polarization(
     p_unnorm = jax.lax.cond(mode == "O", solve_o_mode, solve_x_mode)
 
     return p_unnorm / jnp.linalg.norm(p_unnorm)
-
-
-def _polarization(
-    dielectric_tensor: jt.Complex[jax.Array, "3 3"],
-    refractive_index_perp: ScalarFloat,
-    refractive_index_para: ScalarFloat,
-    frequency: ScalarFloat,
-    cyclotron_frequency: ScalarFloat,
-    mode: Literal["X", "O"],
-) -> jt.Complex[jax.Array, "3"]:
-    """Compute the polarization vector via co-factor expansion of the dispersion tensor.
-
-    Builds three cross-product components from rows of the dispersion tensor.
-    Not JIT-compatible (uses Python if/elif on mode).
-    """
-    D = dispersion.dispersion_tensor_stix(
-        refractive_index_perp=refractive_index_perp,
-        refractive_index_para=refractive_index_para,
-        dielectric_tensor=dielectric_tensor,
-    )
-
-    if mode == "O":
-        p1 = D[1, 1] * D[0, 2] - D[0, 1] * D[1, 2]
-        p2 = -(D[0, 0] * D[1, 2] + D[0, 2] * D[0, 1])
-        p3 = -(D[0, 0] * D[1, 1] + D[0, 1] * D[0, 1])
-    elif mode == "X":
-        p1 = -(D[2, 2] * D[0, 1] + D[1, 2] * D[0, 2])
-        p2 = D[2, 2] * D[0, 0] - D[0, 2] * D[0, 2]
-        p3 = D[0, 1] * D[0, 2] + D[1, 2] * D[0, 0]
-    else:
-        raise ValueError(f"Mode must be either 'X' or 'O', got {mode}.")
-
-    p = jnp.array([p1, p2, p3], dtype=complex)
-    p = p / jnp.linalg.norm(p)
-
-    return p

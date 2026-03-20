@@ -77,6 +77,9 @@ def power_flux_hamiltonian_stix(
     )
 
 
+_grad_hamiltonian = jax.grad(power_flux_hamiltonian_stix, argnums=0)
+
+
 def power_flux_vector_stix(
     refractive_index_perp: ScalarFloat,
     refractive_index_para: ScalarFloat,
@@ -122,14 +125,17 @@ def power_flux_vector_stix(
         max_k: Maximum Larmor-radius order for the KO tensor.
 
     Returns:
-        Power flux vector :math:`\mathbf{F}` in Stix coordinates (dimensionless,
-        SI units).
+        Power flux vector :math:`\mathbf{F} = -\tfrac{1}{2}\,\partial_\mathbf{N}(e^* D^H e)`
+        in Stix coordinates. Dimensionless — it is the gradient of the Hamiltonian
+        with respect to the refractive index vector :math:`\mathbf{N}` and carries
+        no SI units. To obtain the physical Poynting vector, multiply by
+        :math:`(\varepsilon_0 c / 2)|A|^2`.
     """
     refractive_index = jnp.array(
         [refractive_index_perp, 0.0, refractive_index_para],
         dtype=jnp.float64,
     )
-    grad_N = jax.grad(power_flux_hamiltonian_stix, argnums=0)(
+    grad_N = _grad_hamiltonian(
         refractive_index,
         frequency,
         plasma_frequency,

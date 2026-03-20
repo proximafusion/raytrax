@@ -105,7 +105,7 @@ def test_weakly_relativistic_dielectric_tensor():
 def test_weakly_relativistic_converges_to_cold():
     frequency = 2.0e8  # Hz
     plasma_frequency = 1.0e8  # Hz
-    cyclotron_frequency = -5.0e8  # Hz (negative for electrons)
+    cyclotron_frequency = 5.0e8  # Hz
     refractive_index_para = 1.2
     electron_temperature_keV = 1e-8  # Very small temperature
 

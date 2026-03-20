@@ -56,7 +56,8 @@ def weakly_relativistic_dielectric_tensor(
     Args:
         frequency: Wave frequency in Hz
         plasma_frequency: Electron plasma frequency in Hz
-        cyclotron_frequency: Electron cyclotron frequency in Hz
+        cyclotron_frequency: Electron cyclotron frequency in Hz (positive magnitude;
+            the sign convention for electrons is applied internally)
         thermal_velocity: electron thermal velocity normalized to c
         refractive_index_para: Refractive index parallel to the magnetic field
         refractive_index_perp: Refractive index perpendicular to the magnetic field,
