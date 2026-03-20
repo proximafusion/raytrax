@@ -68,8 +68,8 @@ def _polarization(
 ) -> jt.Complex[jax.Array, "3"]:
     """Compute the polarization vector via co-factor expansion of the dispersion tensor.
 
-    Alternative implementation: builds three cross-product components from rows
-    of the dispersion tensor.  Not JIT-compatible (uses Python if/elif on mode).
+    Builds three cross-product components from rows of the dispersion tensor.
+    Not JIT-compatible (uses Python if/elif on mode).
     """
     D = dispersion.dispersion_tensor_stix(
         refractive_index_perp=refractive_index_perp,

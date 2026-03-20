@@ -76,13 +76,9 @@ def weakly_relativistic_dielectric_tensor(
     D = jnp.zeros((3, 3), dtype=jnp.complex128)
     n_par = refractive_index_para
     # lambda = (k_perp * rho_th)^2 / 2 where rho_th = v_th / omega_ce.
-    # k_perp = N_perp * omega / c, so lambda = (N_perp * omega / omega_ce)^2 * v_th^2 / 2
-    #        = (N_perp * w / w_c)^2 / mu.
-    # Use N_perp (perpendicular refractive index), NOT N_par (parallel).
+    # k_perp = N_perp * omega / c => lambda = (N_perp * w / w_c)^2 / mu.
     n_perp = refractive_index_perp
     lam = (n_perp * w / w_c) ** 2 / mu
-    # sqrt(lam * mu) = n_perp * w / w_c; the sign (from w_c < 0) is intentional
-    # and propagates correctly into the off-diagonal tensor components.
     sqrt_lam_mu = n_perp * w / w_c
 
     # computing the Shkarofsky functions F_{q+1/2} at s=0 for all k required

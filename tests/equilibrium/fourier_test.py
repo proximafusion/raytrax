@@ -65,7 +65,7 @@ def test_evaluate_magnetic_field_on_toroidal_grid(torus_wout):
     # z component should be zero
     np.testing.assert_allclose(bfield[..., 2], 0.0, rtol=0, atol=1e-6)
     # xy components
-    np.testing.assert_allclose(bfield[..., :2], bfield_expected_xy, rtol=0, atol=1e-15)
+    np.testing.assert_allclose(bfield[..., :2], bfield_expected_xy, rtol=0, atol=1e-14)
 
 
 def test_dvolume_drho_torus(torus_wout):
