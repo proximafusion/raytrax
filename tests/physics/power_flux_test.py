@@ -3,8 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 from scipy.optimize import root_scalar
 
-from raytrax.physics import dielectric_tensor as dielectric_tensor_module
-from raytrax.physics import polarization, power_flux, quantities
+from raytrax.physics import power_flux, quantities
 
 jax.config.update("jax_enable_x64", True)
 
@@ -22,29 +21,15 @@ def test_hamiltonian():
 
     @jax.jit
     def _h(n_para):
-        dielectric_tensor = (
-            dielectric_tensor_module.weakly_relativistic_dielectric_tensor(
-                frequency=frequency,
-                plasma_frequency=plasma_frequency,
-                cyclotron_frequency=cyclotron_frequency,
-                thermal_velocity=thermal_velocity,
-                refractive_index_para=n_para,
-                max_s=1,
-                max_k=1,
-            )
-        )
-        polarization_vector = polarization.polarization(
-            dielectric_tensor=dielectric_tensor,
-            refractive_index_perp=refractive_index_perp,
-            refractive_index_para=n_para,
-            frequency=frequency,
-            cyclotron_frequency=cyclotron_frequency,
-            mode=mode,
-        )
         return power_flux.power_flux_hamiltonian_stix(
             refractive_index=jnp.array([refractive_index_perp, 0.0, n_para]),
-            dielectric_tensor=dielectric_tensor,
-            polarization_vector=polarization_vector,
+            frequency=frequency,
+            plasma_frequency=plasma_frequency,
+            cyclotron_frequency=cyclotron_frequency,
+            thermal_velocity=thermal_velocity,
+            mode=mode,
+            max_s=1,
+            max_k=1,
         )
 
     # determine n_para such that hamiltonian is zero
@@ -70,28 +55,16 @@ def test_power_flux_vector():
     thermal_velocity = quantities.normalized_electron_thermal_velocity(
         electron_temperature_keV=electron_temperature_keV
     )
-    dielectric_tensor = dielectric_tensor_module.weakly_relativistic_dielectric_tensor(
+    power_flux_vector = power_flux.power_flux_vector_stix(
+        refractive_index_perp=refractive_index_perp,
+        refractive_index_para=refractive_index_para,
         frequency=frequency,
         plasma_frequency=plasma_frequency,
         cyclotron_frequency=cyclotron_frequency,
         thermal_velocity=thermal_velocity,
-        refractive_index_para=refractive_index_para,
+        mode=mode,
         max_s=1,
         max_k=1,
-    )
-    polarization_vector = polarization.polarization(
-        dielectric_tensor=dielectric_tensor,
-        refractive_index_perp=refractive_index_perp,
-        refractive_index_para=refractive_index_para,
-        frequency=frequency,
-        cyclotron_frequency=cyclotron_frequency,
-        mode=mode,
-    )
-    power_flux_vector = power_flux.power_flux_vector_stix(
-        refractive_index_perp=refractive_index_perp,
-        refractive_index_para=refractive_index_para,
-        dielectric_tensor=dielectric_tensor,
-        polarization_vector=polarization_vector,
     )
 
     assert power_flux_vector.shape == (3,)

@@ -1,5 +1,9 @@
 """Integration test: W7-X ECRH absorption comparing raytrax with TRAVIS."""
 
+import jax
+
+jax.config.update("jax_enable_x64", True)
+
 import shutil
 import sys
 from pathlib import Path

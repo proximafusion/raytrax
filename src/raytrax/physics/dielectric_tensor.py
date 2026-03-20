@@ -44,6 +44,7 @@ def weakly_relativistic_dielectric_tensor(
     cyclotron_frequency: ScalarFloat,
     thermal_velocity: ScalarFloat,
     refractive_index_para: ScalarFloat,
+    refractive_index_perp: ScalarFloat = 0.0,
     max_s: int = 1,
     max_k: int = 1,
 ) -> jt.Complex[jax.Array, "3 3"]:
@@ -58,6 +59,9 @@ def weakly_relativistic_dielectric_tensor(
         cyclotron_frequency: Electron cyclotron frequency in Hz
         thermal_velocity: electron thermal velocity normalized to c
         refractive_index_para: Refractive index parallel to the magnetic field
+        refractive_index_perp: Refractive index perpendicular to the magnetic field,
+            used for the Larmor radius parameter lambda (k_perp * rho_th)^2 / 2.
+            Defaults to 0.0 (no Larmor radius correction).
         max_s: Maximum value of s for the Shkarofsky functions
         max_k: Maximum value of k for the Shkarofsky functions
 
@@ -66,15 +70,20 @@ def weakly_relativistic_dielectric_tensor(
     """
     w_p = 2 * jnp.pi * plasma_frequency
     w = 2 * jnp.pi * frequency
-    w_c = 2 * jnp.pi * cyclotron_frequency
+    w_c = -2 * jnp.pi * cyclotron_frequency
     # mu = m_0 c^2 / T_e = m_0 c^2 / (1/2 m_0 v_th^2) = 2 / (v_th / c)^2
     mu = 2 / thermal_velocity**2
     D = jnp.zeros((3, 3), dtype=jnp.complex128)
     n_par = refractive_index_para
-    lam = (n_par * w / w_c) ** 2 / mu
-    # lam*mu = (n_par*w/w_c)², so sqrt(lam*mu) = |n_par|*w/w_c exactly.
-    # jnp.abs avoids sqrt'(0)=Inf at n_par=0 (which causes 0*Inf=NaN in adjoint).
-    sqrt_lam_mu = jnp.abs(n_par) * w / w_c
+    # lambda = (k_perp * rho_th)^2 / 2 where rho_th = v_th / omega_ce.
+    # k_perp = N_perp * omega / c, so lambda = (N_perp * omega / omega_ce)^2 * v_th^2 / 2
+    #        = (N_perp * w / w_c)^2 / mu.
+    # Use N_perp (perpendicular refractive index), NOT N_par (parallel).
+    n_perp = refractive_index_perp
+    lam = (n_perp * w / w_c) ** 2 / mu
+    # sqrt(lam * mu) = n_perp * w / w_c; the sign (from w_c < 0) is intentional
+    # and propagates correctly into the off-diagonal tensor components.
+    sqrt_lam_mu = n_perp * w / w_c
 
     # computing the Shkarofsky functions F_{q+1/2} at s=0 for all k required
     q_max = max_k + 3  # because we need up to F_{q+2}
@@ -95,9 +104,9 @@ def weakly_relativistic_dielectric_tensor(
         Q_h2 = Fq[q + 1] / mu + (Fq[q + 2] + Fq[q] - 2 * Fq[q + 1]) * n_par**2
         # D_11, D_12, D_13 vanish
         # D_22
-        D = D.at[1, 1].set(-mu * b_0k_lam * Q_h0)
+        D = D.at[1, 1].set(b_0k_lam * Q_h0)
         # D_23
-        D = D.at[1, 2].set(1j * sqrt_lam_mu * k * a_0k_lam * Q_h1)
+        D = D.at[1, 2].set(-1j * sqrt_lam_mu * k * a_0k_lam * Q_h1)
         # D_33
         D = D.at[2, 2].add(-mu * lam * a_0k_lam * Q_h2)
 
@@ -127,13 +136,11 @@ def weakly_relativistic_dielectric_tensor(
                 + (Fq_minus_s[q + 2] + Fq_minus_s[q] - 2 * Fq_minus_s[q + 1]) * n_par**2
             )
             D = D.at[0, 0].add(s**2 * a_sk_lam * (Q_h0_s + Q_h0_minus_s))
-            # sign error in Travis?
-            D = D.at[0, 1].add(-1j * s * (s + k) * a_sk_lam * (Q_h0_s - Q_h0_minus_s))
+            D = D.at[0, 1].add(1j * s * (s + k) * a_sk_lam * (Q_h0_s - Q_h0_minus_s))
             D = D.at[1, 1].add(b_sk_lam * (Q_h0_s + Q_h0_minus_s))
             D = D.at[0, 2].add(sqrt_lam_mu * s * a_sk_lam * (Q_h1_s - Q_h1_minus_s))
-            # sign error in Travis?
             D = D.at[1, 2].add(
-                1j * sqrt_lam_mu * (s + k) * a_sk_lam * (Q_h1_s + Q_h1_minus_s)
+                -1j * sqrt_lam_mu * (s + k) * a_sk_lam * (Q_h1_s + Q_h1_minus_s)
             )
             D = D.at[2, 2].add(lam * mu * a_sk_lam * (Q_h2_s + Q_h2_minus_s))
 

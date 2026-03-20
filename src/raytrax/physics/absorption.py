@@ -101,7 +101,8 @@ def absorption_coefficient(
         cyclotron_frequency=cyclotron_frequency,
         thermal_velocity=thermal_velocity,
         refractive_index_para=refractive_index_para,
-        max_s=1,
+        refractive_index_perp=refractive_index_perp,
+        max_s=2,
         max_k=1,
     )
     polarization_vector = polarization.polarization(
@@ -115,8 +116,11 @@ def absorption_coefficient(
     power_flux_vector = power_flux.power_flux_vector_stix(
         refractive_index_perp=refractive_index_perp,
         refractive_index_para=refractive_index_para,
-        dielectric_tensor=dielectric_tensor,
-        polarization_vector=polarization_vector,
+        frequency=frequency,
+        plasma_frequency=plasma_frequency,
+        cyclotron_frequency=cyclotron_frequency,
+        thermal_velocity=thermal_velocity,
+        mode=mode,
     )
     eAe = anti_hermitian_dielectric_form(
         plasma_frequency=plasma_frequency,
@@ -223,7 +227,7 @@ def anti_hermitian_dielectric_form(
             ),
         )
     Xp = (plasma_frequency / frequency) ** 2
-    return -Xp * 8 * jnp.pi**2 * resonance_integral
+    return -Xp * 4 * jnp.pi**2 * resonance_integral
 
 
 def compute_resonance_integral(
@@ -451,25 +455,24 @@ def quasilinear_diffusion_coefficient(
         jnp.maximum(1e-30, lorentz_factor**2 - parallel_momentum**2 - 1)
     )
 
-    # this is the perpendicular wave number times the electron Larmor radius
-    # k_perp = n_perp * omega / c
-    # rho_e = p_perp / (e * B) = p_perp / (omega_c * m_0)
-    # p_perp = u_perp * (m_0 * c)
+    # k_perp * rho_Larmor: k_perp = n_perp * omega / c,  rho_e = p_perp / (omega_c * m_0)
+    # => kperp_rho = N_perp * u_perp * freq / w_ce  (always positive)
     kperp_rho = (
         refractive_index_perp * perpendicular_momentum * frequency / cyclotron_frequency
     )
 
-    # Safety check for small kperp_rho to avoid division by zero
-    # For small x, Jn(x)/x = (x/2)^(n-1) / (2 * n!) for n >= 1
+    # Safety check: avoid division by zero.
     kperp_rho_threshold = 1e-10
     kperp_rho_safe = jnp.where(
-        kperp_rho < kperp_rho_threshold, kperp_rho_threshold, kperp_rho
+        jnp.abs(kperp_rho) < kperp_rho_threshold,
+        kperp_rho_threshold,
+        kperp_rho,
     )
 
-    Jn = bessel.jv_jax(harmonic_index, kperp_rho_safe)
-    dJn = bessel.djv_jax(harmonic_index, kperp_rho_safe)
+    Jn = bessel.jv_jax(-harmonic_index, kperp_rho_safe)
+    dJn = bessel.djv_jax(-harmonic_index, kperp_rho_safe)
 
-    An1 = harmonic_index * Jn / kperp_rho_safe
+    An1 = (-harmonic_index) * Jn / kperp_rho_safe
     An2 = 1j * dJn
     # Avoid division by zero when perpendicular_momentum is very small
     perp_safe = jnp.where(

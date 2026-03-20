@@ -101,7 +101,10 @@ def shkarofsky(
     """
     psi = jnp.asarray(n_par * jnp.sqrt(mu / 2), jnp.complex128)
     alpha_s = jnp.asarray(n_par**2 / 2 - (1 - z * w_c / w), jnp.complex128)
-    phi = jnp.sqrt(mu * alpha_s)
-    phi = jnp.where(alpha_s < 0, -1j * phi, phi)
+    # When alpha_s < 0: sqrt(mu*alpha_s) = +i*|phi|, but the correct branch is -i*|phi|.
+    # Using the complex conjugate of the raw sqrt gives the right sign in both cases:
+    #   alpha_s > 0 => sqrt real => conj = sqrt  (unchanged)
+    #   alpha_s < 0 => sqrt = +i*|phi| => conj = -i*|phi|  (correct branch)
+    phi = jnp.conj(jnp.sqrt(jnp.asarray(mu * alpha_s, jnp.complex128)))
 
     return _shkarofsky_sequence(psi, phi, q_max)
