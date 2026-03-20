@@ -35,6 +35,9 @@ def polarization(
     Returns:
         Normalized complex polarization vector [Ex, Ey, Ez].
     """
+    if mode not in ("X", "O"):
+        raise ValueError(f"mode must be 'X' or 'O', got {mode!r}.")
+
     D = dispersion.dispersion_tensor_stix(
         refractive_index_perp=refractive_index_perp,
         refractive_index_para=refractive_index_para,
