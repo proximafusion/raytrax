@@ -49,8 +49,8 @@ class CylindricalGridResolution:
         n_rho_profile: Number of radial points for the 1-D $dV/d\\rho$ profile.
     """
 
-    n_r: int = 45
-    n_z: int = 55
+    n_r: int = 95
+    n_z: int = 105
     n_phi: int = 50
     n_rho_profile: int = 200
 
