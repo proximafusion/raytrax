@@ -194,6 +194,7 @@ def _right_hand_side(
         electron_temperature_keV=te,
         frequency=setting.frequency,
         mode=setting.mode,
+        max_harmonic=setting.max_harmonic,
     )
 
     return jnp.concatenate([dr_ds, dn_ds, jnp.array([dtau_ds])])

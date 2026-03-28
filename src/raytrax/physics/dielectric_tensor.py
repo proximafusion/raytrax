@@ -18,21 +18,28 @@ def cold_dielectric_tensor(
 ) -> jt.Complex[jax.Array, "3 3"]:
     """Returns the cold plasma dielectric tensor in Stix coordinates.
 
+    Uses the Krivenski-Orefice (KO) electron-sign convention
+    Y_e = ω_ce/ω = −|ω_ce|/ω < 0, matching the sign used internally by
+    :func:`weakly_relativistic_dielectric_tensor`.  This gives ε[0,1] = +iD
+    (where D = (R−L)/2 > 0 for |Y| < 1 and positive densities), so both
+    functions produce identical off-diagonal signs in the T → 0 limit.
+
     Args:
         frequency: Wave frequency in Hz
         plasma_frequency: Electron plasma frequency in Hz
-        cyclotron_frequency: Electron cyclotron frequency in Hz
+        cyclotron_frequency: Electron cyclotron frequency in Hz (positive magnitude;
+            the electron sign Y_e = −f_ce/f is applied internally)
 
     Returns:
         3x3 complex dielectric tensor in Stix coordinates
     """
     X = (plasma_frequency / frequency) ** 2
-    Y = cyclotron_frequency / frequency
+    Y = -cyclotron_frequency / frequency  # electron sign convention: Y_e < 0
 
-    R = 1 - X / (1 + Y)
-    L = 1 - X / (1 - Y)
-    S = 0.5 * (R + L)
-    D = 0.5 * (R - L)
+    R = 1 - X / (1 + Y)  # = L_Stix
+    L = 1 - X / (1 - Y)  # = R_Stix
+    S = 0.5 * (R + L)  # same as Stix S
+    D = 0.5 * (R - L)  # = -D_Stix
     P = 1 - X
 
     return jnp.array([[S, -1j * D, 0], [1j * D, S, 0], [0, 0, P]], dtype=jnp.complex128)
@@ -56,8 +63,9 @@ def weakly_relativistic_dielectric_tensor(
     Args:
         frequency: Wave frequency in Hz
         plasma_frequency: Electron plasma frequency in Hz
-        cyclotron_frequency: Electron cyclotron frequency in Hz (positive magnitude;
-            the sign convention for electrons is applied internally)
+        cyclotron_frequency: Electron cyclotron frequency in Hz (positive magnitude).
+            Internally the KO convention w_c = −2π·f_ce < 0 is applied for
+            electrons, matching the sign convention of :func:`cold_dielectric_tensor`.
         thermal_velocity: electron thermal velocity normalized to c
         refractive_index_para: Refractive index parallel to the magnetic field
         refractive_index_perp: Refractive index perpendicular to the magnetic field,

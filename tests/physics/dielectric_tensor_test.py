@@ -103,37 +103,133 @@ def test_weakly_relativistic_dielectric_tensor():
 
 
 def test_weakly_relativistic_converges_to_cold():
+    """The KO warm tensor must approach the cold tensor element-wise as T → 0.
+
+    Both functions use the KO electron-sign convention (Y_e = −|Y| < 0),
+    so all nine elements — including the off-diagonal imaginary parts — must
+    converge to the same values as T → 0.
+    """
+    # Use T = 1e-4 keV (v_th/c ≈ 2e-4) and max_s=2, max_k=2 to ensure adequate
+    # convergence far from resonance.  T = 1e-8 keV causes numerical overflow in
+    # the Shkarofsky recurrence at this extreme of mu = 2/v_th².
     frequency = 2.0e8  # Hz
     plasma_frequency = 1.0e8  # Hz
-    cyclotron_frequency = 5.0e8  # Hz
-    refractive_index_para = 1.2
-    electron_temperature_keV = 1e-8  # Very small temperature
+    cyclotron_frequency = 5.0e8  # Hz — Y = 2.5, far from every harmonic
+    refractive_index_para = 0.5
+    refractive_index_perp = 0.3
 
+    eps_cold = cold_dielectric_tensor(
+        frequency=frequency,
+        plasma_frequency=plasma_frequency,
+        cyclotron_frequency=cyclotron_frequency,
+    )
     eps_wr = weakly_relativistic_dielectric_tensor(
         frequency=frequency,
         plasma_frequency=plasma_frequency,
         cyclotron_frequency=cyclotron_frequency,
         thermal_velocity=quantities.normalized_electron_thermal_velocity(
-            electron_temperature_keV=electron_temperature_keV
+            electron_temperature_keV=1e-4
         ),
         refractive_index_para=refractive_index_para,
-        max_s=1,
-        max_k=1,
+        refractive_index_perp=refractive_index_perp,
+        max_s=2,
+        max_k=2,
     )
 
-    # these vanish in the cold plasma limit
-    np.testing.assert_allclose(eps_wr[0, 2], 0, rtol=0, atol=1e-8)
-    np.testing.assert_allclose(eps_wr[1, 2], 0, rtol=0, atol=1e-8)
-    np.testing.assert_allclose(eps_wr[2, 0], 0, rtol=0, atol=1e-8)
-    np.testing.assert_allclose(eps_wr[2, 1], 0, rtol=0, atol=1e-8)
+    # Off-diagonal 1–3 and 2–3 blocks vanish in the cold limit
+    for i, j in [(0, 2), (1, 2), (2, 0), (2, 1)]:
+        np.testing.assert_allclose(
+            eps_wr[i, j], 0, rtol=0, atol=1e-4, err_msg=f"eps_wr[{i},{j}] should vanish"
+        )
 
-    # these become equal in the cold plasma limit
-    np.testing.assert_allclose(eps_wr[0, 0], eps_wr[1, 1], rtol=0, atol=1e-8)
+    # Diagonal: S = (R+L)/2 and P = 1−X must match the cold values
+    np.testing.assert_allclose(
+        eps_wr[0, 0].real,
+        eps_cold[0, 0].real,
+        rtol=1e-3,
+        err_msg="S element (real part) should match cold",
+    )
+    np.testing.assert_allclose(
+        eps_wr[1, 1].real,
+        eps_cold[1, 1].real,
+        rtol=1e-3,
+        err_msg="S element (real part) should match cold",
+    )
+    np.testing.assert_allclose(
+        eps_wr[2, 2].real,
+        eps_cold[2, 2].real,
+        rtol=1e-3,
+        err_msg="P element (real part) should match cold",
+    )
 
-    # these fail, unclear why!
-    # np.testing.assert_allclose(eps_wr[0, 1], eps_cold[0, 1], rtol=0, atol=1e-8)
-    # np.testing.assert_allclose(eps_wr[0, 0] - 1, eps_cold[0, 0] - 1, rtol=0, atol=1e-8)
-    # np.testing.assert_allclose(1 - eps_wr[2, 2], 1 - eps_cold[2, 2], rtol=0, atol=1e-8)
+    # Anti-Hermitian part (absorption) must vanish far from resonance
+    for i in range(3):
+        np.testing.assert_allclose(
+            eps_wr[i, i].imag,
+            0,
+            atol=1e-4,
+            err_msg=f"ε_warm[{i},{i}].imag should be ~0",
+        )
+
+    # Both use KO convention: off-diagonal D must converge to the same value
+    np.testing.assert_allclose(
+        float(eps_wr[0, 1].imag),
+        float(eps_cold[0, 1].imag),
+        rtol=1e-3,
+        err_msg="ε[0,1].imag should match cold D value",
+    )
+    assert float(eps_wr[0, 1].imag) * float(eps_cold[0, 1].imag) > 0, (
+        "ε_warm[0,1].imag and ε_cold[0,1].imag must have the same sign "
+        "(both use KO electron-sign convention)"
+    )
+
+
+@pytest.mark.parametrize("mode", ["X", "O"])
+def test_dispersion_invariant_under_d_sign_flip(mode):
+    """The dispersion relation det(Λ) = 0 is invariant under D → −D.
+
+    D enters the dispersion tensor only through off-diagonal imaginary elements.
+    The determinant of the dispersion tensor depends on D² (never on D linearly),
+    so flipping the sign of D cannot change the zeros N².  This is a general
+    mathematical property of the Stix-form dispersion tensor.
+    """
+    frequency = 200e9
+    plasma_frequency = 50e9
+    cyclotron_frequency = 400e9  # Y = 2, far from resonance
+    Y = cyclotron_frequency / frequency
+    X = (plasma_frequency / frequency) ** 2
+    sin2theta = 0.7
+
+    eps = cold_dielectric_tensor(
+        frequency=frequency,
+        plasma_frequency=plasma_frequency,
+        cyclotron_frequency=cyclotron_frequency,
+    )
+    # Build a tensor with D flipped
+    eps_d_flipped = jnp.array(
+        [
+            [eps[0, 0], -eps[0, 1], eps[0, 2]],
+            [-eps[1, 0], eps[1, 1], eps[1, 2]],
+            [eps[2, 0], eps[2, 1], eps[2, 2]],
+        ]
+    )
+
+    n2 = float(_dispersion_appleton_hartee(X=X, Y=Y, sin2theta=sin2theta, mode=mode))
+    n_perp = jnp.sqrt(n2 * sin2theta)
+    n_para = jnp.sqrt(n2 * (1 - sin2theta))
+
+    det_orig = float(jnp.linalg.det(dispersion_tensor_stix(n_perp, n_para, eps)).real)
+    det_flip = float(
+        jnp.linalg.det(dispersion_tensor_stix(n_perp, n_para, eps_d_flipped)).real
+    )
+
+    # Both must be zero at the same N²
+    np.testing.assert_allclose(
+        det_orig, 0, atol=1e-14, err_msg="original tensor must satisfy dispersion"
+    )
+    np.testing.assert_allclose(
+        det_flip, 0, atol=1e-14, err_msg="D-flipped tensor must satisfy same dispersion"
+    )
 
 
 @pytest.mark.parametrize("mode", ["X", "O"])

@@ -65,13 +65,20 @@ where $P_0$ is the initial power of the ray.
 
 ## Weakly Relativistic Dielectric Tensor
 
-For the hermitian part of the dispersion tensor appearing in the denominator of the absorption coefficient,
-
-$$\boldsymbol{\mathsf{D}}^H = \boldsymbol{\varepsilon_r}^H - n^2 \boldsymbol{I} + \boldsymbol{n}\boldsymbol{n}$$
-
-raytrax follows Travis[^1] by using the weakly relativistic dielectric tensor taken from Krivenski and Orefice[^2].
+For the polarization eigenvector $\hat{\boldsymbol{e}}$ in the numerator of the absorption coefficient, raytrax follows Travis[^1] by using the weakly relativistic dielectric tensor from Krivenski and Orefice[^2].
 
 It is implemented in `raytrax.physics.dielectric_tensor.weakly_relativistic_dielectric_tensor`.
+
+
+## Power Flux Vector
+
+For the power flux vector in the denominator,
+
+$$\boldsymbol{F} = -\frac{1}{2}\frac{\partial}{\partial\boldsymbol{N}}\mathrm{Re}\!\left(\hat{\boldsymbol{e}}^* \cdot \boldsymbol{\mathsf{D}}^H \cdot \hat{\boldsymbol{e}}\right)$$
+
+raytrax evaluates this gradient using the cold dielectric tensor.
+
+It is implemented in `raytrax.physics.power_flux.cold_power_flux_vector_stix`.
 
 
 ## Fully Relativistic Dielectric Tensor
