@@ -21,9 +21,9 @@ def test_from_vmec_wout_w7x(w7x_wout):
     # Check the shapes match
     # The actual shape is (n_r, n_phi, n_z, 3) for rphiz and magnetic_field
     # and (n_r, n_phi, n_z) for rho
-    assert interpolator.rphiz.shape == (45, 50, 55, 3)
-    assert interpolator.magnetic_field.shape == (45, 50, 55, 3)
-    assert interpolator.rho.shape == (45, 50, 55)
+    assert interpolator.rphiz.shape == (95, 50, 105, 3)
+    assert interpolator.magnetic_field.shape == (95, 50, 105, 3)
+    assert interpolator.rho.shape == (95, 50, 105)
 
     # Check that non-NaN rho values are non-negative
     # Note: rho > 1 is expected for points outside the LCMS (in the vacuum region)
