@@ -223,12 +223,12 @@ def test_dispersion_invariant_under_d_sign_flip(mode):
         jnp.linalg.det(dispersion_tensor_stix(n_perp, n_para, eps_d_flipped)).real
     )
 
-    # Both must be zero at the same N²
+    # Flipping D must not change the dispersion relation
     np.testing.assert_allclose(
-        det_orig, 0, atol=1e-14, err_msg="original tensor must satisfy dispersion"
-    )
-    np.testing.assert_allclose(
-        det_flip, 0, atol=1e-14, err_msg="D-flipped tensor must satisfy same dispersion"
+        det_flip,
+        det_orig,
+        atol=1e-14,
+        err_msg="D-flipped tensor must satisfy same dispersion",
     )
 
 

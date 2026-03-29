@@ -21,8 +21,9 @@ def cold_dielectric_tensor(
     Uses the Krivenski-Orefice (KO) electron-sign convention
     Y_e = ω_ce/ω = −|ω_ce|/ω < 0, matching the sign used internally by
     :func:`weakly_relativistic_dielectric_tensor`.  This gives ε[0,1] = +iD
-    (where D = (R−L)/2 > 0 for |Y| < 1 and positive densities), so both
-    functions produce identical off-diagonal signs in the T → 0 limit.
+    (where D = (R−L)/2; note that in this KO convention R = L_Stix, L = R_Stix,
+    so D = −D_Stix), ensuring both functions produce identical off-diagonal
+    signs in the T → 0 limit.
 
     Args:
         frequency: Wave frequency in Hz
