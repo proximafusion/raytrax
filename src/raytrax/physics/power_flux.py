@@ -146,3 +146,97 @@ def power_flux_vector_stix(
         max_k,
     )
     return -0.5 * grad_N
+
+
+def _cold_power_flux_hamiltonian_stix(
+    refractive_index: jt.Float[jax.Array, "3"],
+    frequency: ScalarFloat,
+    plasma_frequency: ScalarFloat,
+    cyclotron_frequency: ScalarFloat,
+    mode: Literal["X", "O"],
+) -> ScalarFloat:
+    r"""Cold-plasma power flux Hamiltonian :math:`H = \hat{e}^* \cdot D^H(\mathbf{N}) \cdot \hat{e}`.
+
+    Uses the cold dielectric tensor instead of the weakly-relativistic (KO) tensor,
+    avoiding the N-resonance singularities that arise when differentiating the warm
+    tensor near the electron cyclotron harmonic.  Thermal corrections to the group
+    velocity are O(v_th/c) ≲ 3 % and are neglected here.
+
+    Args:
+        refractive_index: Refractive index in Stix coordinates ``[N_perp, 0, N_para]``.
+        frequency: Wave frequency in Hz.
+        plasma_frequency: Electron plasma frequency in Hz.
+        cyclotron_frequency: Electron cyclotron frequency in Hz.
+        mode: Wave polarization mode, ``"X"`` for extraordinary or ``"O"`` for ordinary.
+
+    Returns:
+        Scalar real Hamiltonian value.
+    """
+    refractive_index_perp = refractive_index[0]
+    refractive_index_para = refractive_index[2]
+    eps = dielectric_tensor_module.cold_dielectric_tensor(
+        frequency=frequency,
+        plasma_frequency=plasma_frequency,
+        cyclotron_frequency=cyclotron_frequency,
+    )
+    polarization_vector = polarization_module.polarization(
+        dielectric_tensor=eps,
+        refractive_index_perp=refractive_index_perp,
+        refractive_index_para=refractive_index_para,
+        frequency=frequency,
+        cyclotron_frequency=cyclotron_frequency,
+        mode=mode,
+    )
+    dispersion_tensor = dispersion.dispersion_tensor_stix(
+        refractive_index_perp=refractive_index_perp,
+        refractive_index_para=refractive_index_para,
+        dielectric_tensor=eps,
+    )
+    dispersion_tensor_h = utils.hermitian_part(dispersion_tensor)
+    return jnp.real(
+        polarization_vector.conj() @ dispersion_tensor_h @ polarization_vector
+    )
+
+
+_cold_grad_hamiltonian = jax.grad(_cold_power_flux_hamiltonian_stix, argnums=0)
+
+
+def cold_power_flux_vector_stix(
+    refractive_index_perp: ScalarFloat,
+    refractive_index_para: ScalarFloat,
+    frequency: ScalarFloat,
+    plasma_frequency: ScalarFloat,
+    cyclotron_frequency: ScalarFloat,
+    mode: Literal["X", "O"],
+) -> jt.Float[jax.Array, "3"]:
+    r"""Compute the cold-plasma power flux vector in Stix coordinates.
+
+    Identical to :func:`power_flux_vector_stix` but uses the cold dielectric
+    tensor for the Hamiltonian gradient, avoiding the N-resonance singularities
+    that arise when differentiating the warm (KO) tensor near the ECR harmonic.
+    Thermal corrections to the group velocity are O(v_th/c) ≲ 3 % and are
+    neglected.
+
+    Args:
+        refractive_index_perp: Perpendicular refractive index.
+        refractive_index_para: Parallel refractive index.
+        frequency: Wave frequency in Hz.
+        plasma_frequency: Electron plasma frequency in Hz.
+        cyclotron_frequency: Electron cyclotron frequency in Hz.
+        mode: Wave polarization mode, ``"X"`` for extraordinary or ``"O"`` for ordinary.
+
+    Returns:
+        Power flux vector :math:`\mathbf{F} = -\tfrac{1}{2}\,\partial_\mathbf{N}(e^* D^H_\mathrm{cold} e)`.
+    """
+    refractive_index = jnp.array(
+        [refractive_index_perp, 0.0, refractive_index_para],
+        dtype=jnp.float64,
+    )
+    grad_N = _cold_grad_hamiltonian(
+        refractive_index,
+        frequency,
+        plasma_frequency,
+        cyclotron_frequency,
+        mode,
+    )
+    return -0.5 * grad_N

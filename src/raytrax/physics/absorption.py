@@ -23,6 +23,7 @@ def absorption_coefficient_conditional(
     electron_temperature_keV: ScalarFloat,
     frequency: ScalarFloat,
     mode: Literal["X", "O"],
+    max_harmonic: int = 2,
 ) -> ScalarFloat:
     """Compute the absorption coefficient if the density and temperature fulfill minimum
     requirements, otherwise return zero.
@@ -34,6 +35,10 @@ def absorption_coefficient_conditional(
         electron_temperature_keV: Electron temperature in keV.
         frequency: Frequency of the wave in Hz.
         mode: Polarization mode, either "X" for extraordinary or "O" for ordinary.
+        max_harmonic: Highest cyclotron harmonic to include in the absorption
+            calculation. Determines the KO tensor FLR order and the number of
+            resonance integrals evaluated. Must be a Python integer (compile-time
+            constant for JIT).
 
     Returns:
         Absorption coefficient alpha in m^-1.
@@ -55,6 +60,7 @@ def absorption_coefficient_conditional(
             electron_temperature_keV=safe_te,
             frequency=frequency,
             mode=mode,
+            max_harmonic=max_harmonic,
         ),
         lambda: 0.0,
     )
@@ -67,6 +73,7 @@ def absorption_coefficient(
     electron_temperature_keV: ScalarFloat,
     frequency: ScalarFloat,
     mode: Literal["X", "O"],
+    max_harmonic: int = 2,
 ) -> ScalarFloat:
     r"""Compute the absorption coefficient $\alpha$.
 
@@ -77,6 +84,9 @@ def absorption_coefficient(
         electron_temperature_keV: Electron temperature in keV.
         frequency: Frequency of the wave in Hz.
         mode: Polarization mode, either "X" for extraordinary or "O" for ordinary.
+        max_harmonic: Highest cyclotron harmonic to include. Determines the KO
+            tensor FLR order and the number of resonance integrals evaluated.
+            Must be a Python integer (compile-time constant for JIT).
 
     Returns:
         Absorption coefficient $\alpha$ in 1/m.
@@ -95,6 +105,9 @@ def absorption_coefficient(
     thermal_velocity = quantities.normalized_electron_thermal_velocity(
         electron_temperature_keV=electron_temperature_keV
     )
+    # The FLR expansion order must be at least as large as the resonant harmonic
+    # so that the polarization eigenvector captures the leading-order FLR correction
+    # at the resonance.  (max_s and max_k must be Python constants for JIT.)
     dielectric_tensor = dielectric_tensor_module.weakly_relativistic_dielectric_tensor(
         frequency=frequency,
         plasma_frequency=plasma_frequency,
@@ -102,8 +115,8 @@ def absorption_coefficient(
         thermal_velocity=thermal_velocity,
         refractive_index_para=refractive_index_para,
         refractive_index_perp=refractive_index_perp,
-        max_s=2,
-        max_k=1,
+        max_s=max_harmonic,
+        max_k=max_harmonic,
     )
     polarization_vector = polarization.polarization(
         dielectric_tensor=dielectric_tensor,
@@ -113,13 +126,12 @@ def absorption_coefficient(
         cyclotron_frequency=cyclotron_frequency,
         mode=mode,
     )
-    power_flux_vector = power_flux.power_flux_vector_stix(
+    power_flux_vector = power_flux.cold_power_flux_vector_stix(
         refractive_index_perp=refractive_index_perp,
         refractive_index_para=refractive_index_para,
         frequency=frequency,
         plasma_frequency=plasma_frequency,
         cyclotron_frequency=cyclotron_frequency,
-        thermal_velocity=thermal_velocity,
         mode=mode,
     )
     eAe = anti_hermitian_dielectric_form(
@@ -130,6 +142,7 @@ def absorption_coefficient(
         refractive_index_perp=refractive_index_perp,
         thermal_velocity=thermal_velocity,
         polarization_vector=polarization_vector,
+        max_harmonic=max_harmonic,
     )
     # Absorption coefficient: alpha = (omega/c) * eAe / |F|
     # where eAe = ê* · ε_r^A · ê is the anti-Hermitian dielectric form
@@ -158,6 +171,7 @@ def anti_hermitian_dielectric_form(
     refractive_index_perp: ScalarFloat,
     thermal_velocity: ScalarFloat,
     polarization_vector: jt.Complex[jax.Array, "3"],
+    max_harmonic: int = 2,
 ) -> ScalarFloat:
     r"""Compute $\hat{e}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{e}$, the
     anti-Hermitian part of the relative dielectric tensor contracted with the
@@ -189,13 +203,13 @@ def anti_hermitian_dielectric_form(
         refractive_index_perp: Refractive index perpendicular to the magnetic field.
         thermal_velocity: Normalized electron thermal velocity (v_th / c).
         polarization_vector: Normalized polarization vector in Stix coordinates.
+        max_harmonic: Highest cyclotron harmonic to include in the sum.
 
     Returns:
         The scalar quadratic form :math:`\hat{e}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{e}` (dimensionless).
     """  # noqa: E501
     resonance_integral = 0.0
-    # TODO extend to higher harmonics - currently only 1st and 2nd harmonic
-    for harmonic_index in range(1, 3):
+    for harmonic_index in range(1, max_harmonic + 1):
         resonance_integral += jax.lax.cond(
             # The resonance condition is given by
             # gamma = nY + n_para * u_para
@@ -262,10 +276,9 @@ def compute_resonance_integral(
         polarization_vector: Normalized polarization vector in Stix coordinates.
         thermal_velocity: Normalized electron thermal velocity (v_th / c).
     """  # noqa: E501
-    # Determine the integration bounds
-    # See above for the description of the resonance condition as a circle in
-    # the u_perp, u_para plane. This determines u_min and u_max as the left and right
-    # boundaries of the circle.
+    # Integration bounds from the resonance circle.  The conditions
+    # γ = nY + N_∥·u_∥ and γ² = 1 + u_∥² + u_⊥² define a circle in the
+    # (u_∥, u_⊥) plane; setting u_⊥=0 gives the endpoints u_min and u_max.
     nY = harmonic_index * cyclotron_frequency / frequency
     n_para = refractive_index_para
     denom = 1 - n_para**2
@@ -277,18 +290,25 @@ def compute_resonance_integral(
     delta_u = jnp.sqrt(jnp.maximum(1e-30, disc)) / jnp.maximum(jnp.abs(denom), 1e-10)
     delta_u = jnp.where(disc < 0, 0.0, delta_u)
     u_res = nY * n_para / denom
-    u_min = u_res - delta_u
-    u_max = u_res + delta_u
-
-    # No u_gamma_limit = (1-nY)/n_para enforcement: its gradient ~1/n_para²
-    # diverges catastrophically when n_para≈0.  The γ²-u²-1<0 guard inside
-    # resonance_integrand already zeros the integrand for any u with γ<1.
+    # Use u_cutoff = 7 * thermal_velocity (exp(-24.5) ≈ 2e-11 of distribution peak).
+    u_cutoff = 7.0 * thermal_velocity
 
     # Early return if resonance region doesn't intersect bulk of distribution.
-    # intersects with the bulk of the Maxwellian. Use u_cutoff = 5 * thermal_velocity
-    # (corresponding to exp(-12.5) ≈ 4e-6 of the distribution peak).
-    u_cutoff = 5.0 * thermal_velocity
-    resonance_in_bulk = jnp.minimum(jnp.abs(u_min), jnp.abs(u_max)) < u_cutoff
+    # Use the unclamped delta_u so that wide resonance circles (large delta_u)
+    # that straddle u_para = 0 are not mistakenly rejected after clamping.
+    u_min_raw = u_res - delta_u
+    u_max_raw = u_res + delta_u
+    resonance_in_bulk = jnp.minimum(jnp.abs(u_min_raw), jnp.abs(u_max_raw)) < u_cutoff
+
+    # Clamp the integration window to [-u_cutoff, +u_cutoff].  For N_∥ → 1
+    # the resonance circle diverges; zero the contribution since the
+    # quasi-longitudinal regime is outside ECH validity.
+    near_lightline = jnp.abs(denom) < 1e-4
+    u_min = jnp.where(near_lightline, 0.0, jnp.maximum(u_min_raw, -u_cutoff))
+    u_max = jnp.where(near_lightline, 0.0, jnp.minimum(u_max_raw, +u_cutoff))
+
+    # The u_gamma_limit = (1-nY)/N_∥ bound is not enforced explicitly; the
+    # γ²−u_∥²−1<0 guard in resonance_integrand zeros the integrand for γ<1.
 
     def compute_integral() -> ScalarFloat:
         # K2_scaled = kve(2, mu) depends only on thermal_velocity, which is
@@ -297,19 +317,9 @@ def compute_resonance_integral(
         mu = 2 / thermal_velocity**2
         K2_scaled = bessel.kve_jax(2, mu)
 
-        # Grid resolution for the trapezoidal rule.
-        # The integrand is peaked on the resonance curve with a 1/e-folding width
-        # in u_para of ~ 1 / (mu * n_para), where mu = m_e c^2 / T_e = 2 / vth^2.
-        # The integration range is set by the resonance circle geometry and scales
-        # as ~ sqrt(n_para^2 + nY^2 - 1) / (1 - n_para^2).  Requiring ~5 points
-        # per 1/e-folding gives N_min ~ 3 * mu * n_para^2 / (1 - n_para^2).
-        #
-        # N=1000 covers the physically relevant ECRH parameter space:
-        #   T >= 0.5 keV (mu <= 770),  n_para <= 0.50  ->  N_min <= 770   [safe]
-        #   T >= 0.1 keV (mu <= 3100), n_para <= 0.25  ->  N_min <= 640   [safe]
-        # At T < 0.5 keV and n_para > 0.3 the integrand is more narrowly peaked,
-        # but the absorption coefficient is also exponentially suppressed (sub-thermal
-        # resonance), so the absolute error on alpha remains negligible.
+        # 1000-point trapezoidal grid.  The integrand 1/e-width scales as
+        # 1/(μ·N_∥) with μ = 2/v_th²; 1000 points gives ≥5 points per
+        # 1/e-folding for T ≥ 0.5 keV and N_∥ ≤ 0.5.
         u_grid = jnp.linspace(u_min, u_max, 1000)
 
         # Compute the integrand values
@@ -409,7 +419,6 @@ def _resonance_integrand_full(
         parallel_momentum=parallel_momentum,
         polarization_vector=polarization_vector,
     )
-    # FIXME hard-coded Maxwellian for now
     df_dgamma = distribution_function.maxwell_juettner_distribution_dgamma_precomputed(
         lorentz_factor, thermal_velocity=thermal_velocity, K2_scaled=K2_scaled
     )
@@ -455,14 +464,14 @@ def quasilinear_diffusion_coefficient(
         jnp.maximum(1e-30, lorentz_factor**2 - parallel_momentum**2 - 1)
     )
 
-    # k_perp * rho_Larmor: k_perp = n_perp * omega / c,  rho_e = p_perp / (omega_c * m_0)
-    # => kperp_rho = N_perp * u_perp * freq / omega_ce  (non-negative: all factors are
-    #    non-negative because cyclotron_frequency is passed as a positive magnitude)
-    kperp_rho = (
+    # k_⊥ρ_L with the electron-helicity sign convention (negative).
+    # J_{-n}(-|z|) = J_n(|z|) for all n, whereas J_{-n}(+|z|) = (-1)^n J_n(|z|)
+    # differs by sign for odd harmonics; the minus ensures correct odd-n terms.
+    kperp_rho = -(
         refractive_index_perp * perpendicular_momentum * frequency / cyclotron_frequency
     )
 
-    # Safety check: avoid division by zero.
+    # Avoid division by zero in An1 = n·Jn/z.
     kperp_rho_threshold = 1e-10
     kperp_rho_safe = jnp.where(
         jnp.abs(kperp_rho) < kperp_rho_threshold,

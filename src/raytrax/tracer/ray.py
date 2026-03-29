@@ -13,6 +13,7 @@ import jaxtyping as jt
 class RaySetting:
     frequency: jt.Float[jax.Array, ""]
     mode: Literal["X", "O"] = dataclass_field(metadata={"static": True})
+    max_harmonic: int = dataclass_field(default=2, metadata={"static": True})
 
 
 @jax.tree_util.register_dataclass

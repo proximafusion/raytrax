@@ -96,6 +96,11 @@ class Beam:
     power: float
     """The initial power of the beam in W (not MW!)."""
 
+    max_harmonic: int = dataclass_field(default=2, metadata={"static": True})
+    """Highest cyclotron harmonic included in the absorption calculation.
+    Controls both the KO-tensor FLR order and the number of resonance integrals
+    evaluated. Increase to 3 for 3rd-harmonic scenarios, etc. Defaults to 2."""
+
 
 @jax.tree_util.register_dataclass
 @dataclass

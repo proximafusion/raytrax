@@ -140,7 +140,9 @@ def _run_trace(
     settings: TracerSettings,
 ) -> tuple[TraceBuffers, jax.Array]:
     """Build interpolators and run the JIT-compiled ODE solve."""
-    setting = RaySetting(frequency=beam.frequency, mode=beam.mode)
+    setting = RaySetting(
+        frequency=beam.frequency, mode=beam.mode, max_harmonic=beam.max_harmonic
+    )
     interpolators = Interpolators(
         magnetic_field=build_magnetic_field_interpolator(magnetic_configuration),
         rho=build_rho_interpolator(magnetic_configuration),
