@@ -50,6 +50,7 @@ JAX recompiles whenever the *structure* of the inputs changes. For Raytrax, this
 | `rho` grid size (e.g. 40 → 80 points) | **Yes** |
 | Magnetic field grid shape | **Yes** |
 | Wave mode (`"X"` ↔ `"O"`) | **Yes** |
+| `max_harmonic` on `Beam` | **Yes** |
 | Switching between tokamak and stellarator | **Yes** |
 | Number of field periods (`nfp`) | No |
 
