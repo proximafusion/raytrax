@@ -68,10 +68,12 @@ def _bin_power_deposition(
     # Any finite fill for rho at padded slots — those slots are never queried.
     rho_trajectory = jnp.where(jnp.isfinite(rho_trajectory), rho_trajectory, 0.0)
 
-    # --- 2. Dense cubic interpolation along arc length ---------------------
+    # --- 2. Dense interpolation along arc length ---------------------
+    # tau uses linear (not cubic) to preserve monotonicity: cubic undershoots
+    # below zero, making exp(-tau) > 1 and inflating the total binned power.
     s_fine = jnp.linspace(arc_length[0], s_max, _N_INTERP)
     rho_fine = interpax.interp1d(s_fine, arc_length, rho_trajectory, method="cubic")
-    tau_fine = interpax.interp1d(s_fine, arc_length, optical_depth, method="cubic")
+    tau_fine = interpax.interp1d(s_fine, arc_length, optical_depth, method="linear")
 
     # --- 3. Exact overlap-based binning on dense samples -------------------
     # dP_i = exp(-τ_i) − exp(-τ_{i+1}), clamped to ≥ 0.
@@ -253,9 +255,9 @@ def trace(
     power_binned = _bin_power_deposition(
         magnetic_configuration.rho_1d,
         magnetic_configuration.dvolume_drho,
-        result.arc_length[:n],
-        result.normalized_effective_radius[:n],
-        result.ode_state[:n, 6],
+        result.arc_length,  # full padded array; _bin_power_deposition sanitizes inf
+        result.normalized_effective_radius,
+        result.ode_state[:, 6],
     )
 
     tau_final = beam_profile.optical_depth[-1]

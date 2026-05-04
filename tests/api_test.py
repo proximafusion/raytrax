@@ -244,3 +244,49 @@ def test_bin_power_with_padded_zeros():
     # A global cubic spline has different boundary conditions when padded
     # points are present, so perfect agreement is not achievable; 5% is fine.
     np.testing.assert_allclose(result_padded, result_trimmed, rtol=0.05)
+
+
+def test_bin_power_full_padded_arrays_match_trimmed():
+    """Full padded arrays (all three inf) give same result as trimmed arrays.
+
+    This test mirrors exactly what trace(trim=True) now does: it passes the
+    full (max_steps+1)-length arrays to _bin_power_deposition without slicing
+    to [:n]. diffrax fills arc_length, ode_state (→ optical_depth), and
+    normalized_effective_radius with inf for every unused slot, so all three
+    arrays contain inf in the padded region.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 8
+    n_pad = 42  # simulate a large fixed-size buffer with many unused slots
+
+    rho_valid = jnp.linspace(0.9, 0.2, n_valid)
+    tau_valid = jnp.linspace(0.0, 2.5, n_valid)
+    s_valid = jnp.linspace(0.0, 0.7, n_valid)
+
+    # All three arrays are inf in the padded region — exactly as diffrax produces.
+    rho_trajectory = jnp.concatenate([rho_valid, jnp.full(n_pad, jnp.inf)])
+    optical_depth = jnp.concatenate([tau_valid, jnp.full(n_pad, jnp.inf)])
+    arc_length = jnp.concatenate([s_valid, jnp.full(n_pad, jnp.inf)])
+
+    result_full = _bin_power_deposition(
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_valid, rho_valid, tau_valid
+    )
+
+    assert result_full.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_full)), (
+        "inf in rho_trajectory (padded slots) must be sanitized before binning"
+    )
+
+    # Power conservation: total deposited power is the same regardless of padding.
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_full = float(jnp.sum(result_full * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+    np.testing.assert_allclose(total_full, total_trimmed, rtol=0.02)
