@@ -27,6 +27,18 @@ from .types import (
 _N_INTERP = 2000  # dense arc-length samples used for smooth radial binning
 
 
+def _next_power_of_two(n: int) -> int:
+    """Return the smallest power of two >= n (minimum 4).
+
+    Used to bucket the valid trajectory length to a small set of fixed sizes,
+    limiting XLA recompilation count to O(log(max_steps)) ≈ 12 while keeping
+    the number of spline knots close to the actual trajectory length.
+    diffrax fills arc_length[n:] with inf, so arc_length[:bucket] has exactly
+    the right inf-padding structure that _bin_power_deposition already handles.
+    """
+    return max(4, 1 << max(0, (n - 1).bit_length()))
+
+
 def _bin_power_deposition(
     rho_grid: jt.Float[jax.Array, " nrho"],
     dvolume_drho: jt.Float[jax.Array, " nrho"],
@@ -255,9 +267,9 @@ def trace(
     power_binned = _bin_power_deposition(
         magnetic_configuration.rho_1d,
         magnetic_configuration.dvolume_drho,
-        result.arc_length,  # full padded array; _bin_power_deposition sanitizes inf
-        result.normalized_effective_radius,
-        result.ode_state[:, 6],
+        result.arc_length[: _next_power_of_two(n)],
+        result.normalized_effective_radius[: _next_power_of_two(n)],
+        result.ode_state[: _next_power_of_two(n), 6],
     )
 
     tau_final = beam_profile.optical_depth[-1]

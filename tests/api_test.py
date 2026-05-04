@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from raytrax.api import _bin_power_deposition, trace
+from raytrax.api import _bin_power_deposition, _next_power_of_two, trace
 from raytrax.equilibrium.interpolate import MagneticConfiguration
 from raytrax.types import Beam, RadialProfiles, TracerSettings
 
@@ -290,3 +290,68 @@ def test_bin_power_full_padded_arrays_match_trimmed():
     total_full = float(jnp.sum(result_full * dV))
     total_trimmed = float(jnp.sum(result_trimmed * dV))
     np.testing.assert_allclose(total_full, total_trimmed, rtol=0.02)
+
+
+def test_next_power_of_two():
+    """_next_power_of_two returns a small set of fixed sizes to cap XLA recompilations."""
+    assert _next_power_of_two(1) == 4
+    assert _next_power_of_two(4) == 4
+    assert _next_power_of_two(5) == 8
+    assert _next_power_of_two(8) == 8
+    assert _next_power_of_two(9) == 16
+    assert _next_power_of_two(4096) == 4096
+    assert _next_power_of_two(4097) == 8192
+
+
+def test_bin_power_bucketed_slice_matches_trimmed():
+    """Power-of-2 bucketed slice gives same deposition as exact trimmed slice.
+
+    trace(trim=True) now passes result.arc_length[:_next_power_of_two(n)] instead of
+    either result.arc_length[:n] (variable shape → recompilation) or result.arc_length
+    (full 4097 knots → spline perturbation). The bucketed slice has at most
+    bucket - n extra inf knots, which the sanitization step pushes well beyond s_max.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 13  # not a power of two → bucket = 16
+    n_bucket = _next_power_of_two(n_valid)  # 16
+    n_total = 64  # simulate a larger fixed buffer
+
+    assert n_bucket == 16
+
+    rho_valid = jnp.linspace(0.85, 0.15, n_valid)
+    tau_valid = jnp.linspace(0.0, 3.0, n_valid)
+    s_valid = jnp.linspace(0.0, 1.2, n_valid)
+
+    # Build a full diffrax-style buffer: valid entries then inf padding.
+    rho_buf = jnp.concatenate([rho_valid, jnp.full(n_total - n_valid, jnp.inf)])
+    tau_buf = jnp.concatenate([tau_valid, jnp.full(n_total - n_valid, jnp.inf)])
+    s_buf = jnp.concatenate([s_valid, jnp.full(n_total - n_valid, jnp.inf)])
+
+    result_bucketed = _bin_power_deposition(
+        rho_grid,
+        dvolume_drho,
+        s_buf[:n_bucket],
+        rho_buf[:n_bucket],
+        tau_buf[:n_bucket],
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid,
+        dvolume_drho,
+        s_valid,
+        rho_valid,
+        tau_valid,
+    )
+
+    assert result_bucketed.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_bucketed))
+
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_bucketed = float(jnp.sum(result_bucketed * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+    # Bucketed slice has only 3 extra inf knots → negligible spline perturbation.
+    np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
