@@ -247,13 +247,14 @@ def test_bin_power_with_padded_zeros():
 
 
 def test_bin_power_full_padded_arrays_match_trimmed():
-    """Full padded arrays (all three inf) give same result as trimmed arrays.
+    """inf-padded tail in all three arrays does not change the deposited power.
 
-    This test mirrors exactly what trace(trim=True) now does: it passes the
-    full (max_steps+1)-length arrays to _bin_power_deposition without slicing
-    to [:n]. diffrax fills arc_length, ode_state (→ optical_depth), and
-    normalized_effective_radius with inf for every unused slot, so all three
-    arrays contain inf in the padded region.
+    This regression test covers the sanitization path in _bin_power_deposition.
+    trace(trim=True) passes power-of-2 bucketed slices (not the full max_steps+1
+    buffer), so the padded region is small (at most bucket-n entries of inf);
+    this test exercises the same sanitization with a larger pad to confirm
+    robustness. diffrax fills arc_length, ode_state (→ optical_depth), and
+    normalized_effective_radius with inf for every unused slot.
     """
     rho_grid = jnp.linspace(0.0, 1.0, 20)
     dvolume_drho = jnp.ones(20)
@@ -293,14 +294,22 @@ def test_bin_power_full_padded_arrays_match_trimmed():
 
 
 def test_next_power_of_two():
-    """_next_power_of_two returns a small set of fixed sizes to cap XLA recompilations."""
+    """_next_power_of_two returns a small set of fixed sizes to cap XLA recompilations.
+
+    The function itself may return a value larger than the actual buffer length
+    (e.g. 4097 → 8192); the caller is responsible for clamping to the buffer
+    size so that full-length traces don't produce a unique shape.
+    """
     assert _next_power_of_two(1) == 4
     assert _next_power_of_two(4) == 4
     assert _next_power_of_two(5) == 8
     assert _next_power_of_two(8) == 8
     assert _next_power_of_two(9) == 16
     assert _next_power_of_two(4096) == 4096
+    # 4097 exceeds the last power-of-two bucket; the caller clamps to buffer length.
     assert _next_power_of_two(4097) == 8192
+    # Verify the caller-side clamp: min(_next_power_of_two(4097), 4097) == 4097
+    assert min(_next_power_of_two(4097), 4097) == 4097
 
 
 def test_bin_power_bucketed_slice_matches_trimmed():
@@ -355,3 +364,29 @@ def test_bin_power_bucketed_slice_matches_trimmed():
     total_trimmed = float(jnp.sum(result_trimmed * dV))
     # Bucketed slice has only 3 extra inf knots → negligible spline perturbation.
     np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
+
+
+def test_bin_power_deposition_single_point_returns_zeros():
+    """n_valid=1 (s_max=0) returns an all-zero deposition profile without crashing.
+
+    When the ODE solver terminates immediately (e.g., beam starts outside the
+    plasma), arc_length = [0.0] and s_max = 0.  The padding formula
+    s_max*(2+arange) would collapse all padded knots to 0, producing duplicate
+    spline knots and corrupting the interpolation.  _bin_power_deposition must
+    detect s_max==0 and return zeros instead of attempting the spline.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    # Single valid point (what diffrax produces for an immediately-terminated trace)
+    # followed by the inf padding that _next_power_of_two(1)==4 would expose.
+    arc_length = jnp.array([0.0, jnp.inf, jnp.inf, jnp.inf])
+    rho_trajectory = jnp.array([0.5, jnp.inf, jnp.inf, jnp.inf])
+    optical_depth = jnp.array([0.0, jnp.inf, jnp.inf, jnp.inf])
+
+    result = _bin_power_deposition(
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
+    )
+
+    assert result.shape == rho_grid.shape
+    assert jnp.all(result == 0.0), "Single-point trace must return zero deposition"
