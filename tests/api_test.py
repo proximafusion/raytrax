@@ -390,3 +390,54 @@ def test_bin_power_deposition_single_point_returns_zeros():
 
     assert result.shape == rho_grid.shape
     assert jnp.all(result == 0.0), "Single-point trace must return zero deposition"
+
+
+def test_bin_power_large_bucket_profile_matches_trimmed():
+    """Large bucket (2049 → 4096) preserves both total power and profile shape.
+
+    This is the highest-risk regime: 2047 inf-padding slots become rho-padded
+    knots.  If rho padding uses 0 instead of the last valid rho value, the
+    cubic spline's boundary derivative at s_max is pulled toward zero, creating
+    a downward artifact in the deposition profile near the trajectory end.
+    Tests both total power conservation and per-bin profile shape.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 2049  # just above a bucket boundary → bucket = 4096
+    n_bucket = _next_power_of_two(n_valid)
+    assert n_bucket == 4096
+
+    # Beam traversal that stops well inside the plasma (last rho ≠ 0),
+    # so zero-padding of rho would distort the boundary derivative.
+    rho_valid = jnp.linspace(0.9, 0.45, n_valid)
+    tau_valid = jnp.linspace(0.0, 3.5, n_valid)
+    s_valid = jnp.linspace(0.0, 2.5, n_valid)
+
+    n_pad = n_bucket - n_valid  # 2047
+    rho_buf = jnp.concatenate([rho_valid, jnp.full(n_pad, jnp.inf)])
+    tau_buf = jnp.concatenate([tau_valid, jnp.full(n_pad, jnp.inf)])
+    s_buf = jnp.concatenate([s_valid, jnp.full(n_pad, jnp.inf)])
+
+    result_bucketed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_buf, rho_buf, tau_buf
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_valid, rho_valid, tau_valid
+    )
+
+    assert result_bucketed.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_bucketed))
+
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_bucketed = float(jnp.sum(result_bucketed * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+
+    # Total power must be conserved.
+    np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
+    # Per-bin profile shape must also match — this catches cubic spline boundary
+    # artifacts from zero-padded rho knots distorting deposition near s_max.
+    np.testing.assert_allclose(result_bucketed, result_trimmed, rtol=0.05, atol=1e-6)

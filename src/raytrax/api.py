@@ -88,8 +88,11 @@ def _bin_power_deposition(
         s_max_safe * (2.0 + jnp.arange(arc_length.shape[0])),
     )
 
-    # Any finite fill for rho at padded slots — those slots are never queried.
-    rho_trajectory = jnp.where(jnp.isfinite(rho_trajectory), rho_trajectory, 0.0)
+    # Pad rho with the last valid value, not 0: using 0 would pull the cubic
+    # spline's boundary derivative at s_max toward zero, distorting the profile.
+    n_valid_rho = jnp.sum(jnp.isfinite(rho_trajectory), dtype=jnp.int32)
+    rho_last = rho_trajectory[jnp.maximum(n_valid_rho - 1, 0)]
+    rho_trajectory = jnp.where(jnp.isfinite(rho_trajectory), rho_trajectory, rho_last)
 
     # --- 2. Dense interpolation along arc length ---------------------
     # tau uses linear (not cubic) to preserve monotonicity: cubic undershoots
@@ -277,8 +280,7 @@ def trace(
         linear_power_density=result.linear_power_density[:n] * beam.power,
     )
 
-    # Clamp to the actual buffer size so that a full-length trace (n == buffer
-    # size) does not produce n_bucket > buffer_size → unique shape defeating bucketing.
+    # Clamp: _next_power_of_two(n) can exceed the buffer length (e.g. 4097→8192).
     n_bucket = min(_next_power_of_two(n), result.arc_length.shape[0])
     power_binned = _bin_power_deposition(
         magnetic_configuration.rho_1d,
