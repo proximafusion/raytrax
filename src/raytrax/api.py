@@ -27,6 +27,18 @@ from .types import (
 _N_INTERP = 2000  # dense arc-length samples used for smooth radial binning
 
 
+def _next_power_of_two(n: int) -> int:
+    """Return the smallest power of two >= n (minimum 4).
+
+    Used to bucket the valid trajectory length to a small set of fixed sizes,
+    limiting XLA recompilation count to O(log(max_steps)) ≈ 12 while keeping
+    the number of spline knots close to the actual trajectory length.
+    diffrax fills arc_length[n:] with inf, so arc_length[:bucket] has exactly
+    the right inf-padding structure that _bin_power_deposition already handles.
+    """
+    return max(4, 1 << max(0, (n - 1).bit_length()))
+
+
 def _bin_power_deposition(
     rho_grid: jt.Float[jax.Array, " nrho"],
     dvolume_drho: jt.Float[jax.Array, " nrho"],
@@ -41,9 +53,10 @@ def _bin_power_deposition(
     directly we:
 
     1. Sanitize inf padding (diffrax fills unused sol.ys slots with inf).
-    2. Linearly interpolate rho(s) and τ(s) to _N_INTERP uniformly-spaced
+    2. Interpolate rho(s) (cubic) and τ(s) (linear) to _N_INTERP uniformly-spaced
        arc-length samples — no bandwidth choice needed, smoothness follows
-       from density.
+       from density. τ uses linear to preserve monotonicity; rho uses cubic
+       for smooth deposition profiles.
     3. Use exact overlap-based binning on the dense samples.
     """
     # --- 1. Sanitize inf padding -------------------------------------------
@@ -55,6 +68,16 @@ def _bin_power_deposition(
     optical_depth = jnp.where(jnp.isfinite(optical_depth), optical_depth, tau_final)
 
     s_max = jnp.max(jnp.where(jnp.isfinite(arc_length), arc_length, 0.0))
+
+    # Degenerate case: only the initial point is present (n_valid=1, s_max=0).
+    # Padding formula s_max*(2+arange) would produce duplicate zero knots,
+    # corrupting the spline.  Use s_max_safe=1 as a stand-in so all arithmetic
+    # stays finite; the result is masked to zero at the end via jnp.where so
+    # no spurious deposition is ever returned.  Using jnp.where (not a Python
+    # `if`) keeps the function JIT-traceable.
+    is_degenerate = s_max == 0
+    s_max_safe = jnp.where(is_degenerate, 1.0, s_max)
+
     # Push padded entries well beyond s_max with *distinct* monotone values.
     # All-equal padding (s_max + 1) creates duplicate cubic knots that corrupt
     # the spline within [0, s_max].  Spacing by s_max per slot pushes each
@@ -62,16 +85,21 @@ def _bin_power_deposition(
     arc_length = jnp.where(
         jnp.isfinite(arc_length),
         arc_length,
-        s_max * (2.0 + jnp.arange(arc_length.shape[0])),
+        s_max_safe * (2.0 + jnp.arange(arc_length.shape[0])),
     )
 
-    # Any finite fill for rho at padded slots — those slots are never queried.
-    rho_trajectory = jnp.where(jnp.isfinite(rho_trajectory), rho_trajectory, 0.0)
+    # Pad rho with the last valid value, not 0: using 0 would pull the cubic
+    # spline's boundary derivative at s_max toward zero, distorting the profile.
+    n_valid_rho = jnp.sum(jnp.isfinite(rho_trajectory), dtype=jnp.int32)
+    rho_last = rho_trajectory[jnp.maximum(n_valid_rho - 1, 0)]
+    rho_trajectory = jnp.where(jnp.isfinite(rho_trajectory), rho_trajectory, rho_last)
 
-    # --- 2. Dense cubic interpolation along arc length ---------------------
-    s_fine = jnp.linspace(arc_length[0], s_max, _N_INTERP)
+    # --- 2. Dense interpolation along arc length ---------------------
+    # tau uses linear (not cubic) to preserve monotonicity: cubic undershoots
+    # below zero, making exp(-tau) > 1 and inflating the total binned power.
+    s_fine = jnp.linspace(arc_length[0], s_max_safe, _N_INTERP)
     rho_fine = interpax.interp1d(s_fine, arc_length, rho_trajectory, method="cubic")
-    tau_fine = interpax.interp1d(s_fine, arc_length, optical_depth, method="cubic")
+    tau_fine = interpax.interp1d(s_fine, arc_length, optical_depth, method="linear")
 
     # --- 3. Exact overlap-based binning on dense samples -------------------
     # dP_i = exp(-τ_i) − exp(-τ_{i+1}), clamped to ≥ 0.
@@ -109,7 +137,9 @@ def _bin_power_deposition(
     power_per_bin = dP @ weights  # (nrho,)
 
     dV = dvolume_drho * (bin_hi - bin_lo)
-    return power_per_bin / jnp.maximum(dV, 1e-30)
+    result = power_per_bin / jnp.maximum(dV, 1e-30)
+    # Mask to zero for the degenerate single-point case (s_max=0).
+    return jnp.where(is_degenerate, jnp.zeros_like(result), result)
 
 
 def _deposition_stats(
@@ -250,12 +280,14 @@ def trace(
         linear_power_density=result.linear_power_density[:n] * beam.power,
     )
 
+    # Clamp: _next_power_of_two(n) can exceed the buffer length (e.g. 4097→8192).
+    n_bucket = min(_next_power_of_two(n), result.arc_length.shape[0])
     power_binned = _bin_power_deposition(
         magnetic_configuration.rho_1d,
         magnetic_configuration.dvolume_drho,
-        result.arc_length[:n],
-        result.normalized_effective_radius[:n],
-        result.ode_state[:n, 6],
+        result.arc_length[:n_bucket],
+        result.normalized_effective_radius[:n_bucket],
+        result.ode_state[:n_bucket, 6],
     )
 
     tau_final = beam_profile.optical_depth[-1]

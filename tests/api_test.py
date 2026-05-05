@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from raytrax.api import _bin_power_deposition, trace
+from raytrax.api import _bin_power_deposition, _next_power_of_two, trace
 from raytrax.equilibrium.interpolate import MagneticConfiguration
 from raytrax.types import Beam, RadialProfiles, TracerSettings
 
@@ -244,3 +244,194 @@ def test_bin_power_with_padded_zeros():
     # A global cubic spline has different boundary conditions when padded
     # points are present, so perfect agreement is not achievable; 5% is fine.
     np.testing.assert_allclose(result_padded, result_trimmed, rtol=0.05)
+
+
+def test_bin_power_full_padded_arrays_match_trimmed():
+    """inf-padded tail in all three arrays does not change the deposited power.
+
+    This regression test covers the sanitization path in _bin_power_deposition.
+    trace(trim=True) passes power-of-2 bucketed slices (not the full max_steps+1
+    buffer), so the padded region is small (at most bucket-n entries of inf);
+    this test exercises the same sanitization with a larger pad to confirm
+    robustness. diffrax fills arc_length, ode_state (→ optical_depth), and
+    normalized_effective_radius with inf for every unused slot.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 8
+    n_pad = 42  # simulate a large fixed-size buffer with many unused slots
+
+    rho_valid = jnp.linspace(0.9, 0.2, n_valid)
+    tau_valid = jnp.linspace(0.0, 2.5, n_valid)
+    s_valid = jnp.linspace(0.0, 0.7, n_valid)
+
+    # All three arrays are inf in the padded region — exactly as diffrax produces.
+    rho_trajectory = jnp.concatenate([rho_valid, jnp.full(n_pad, jnp.inf)])
+    optical_depth = jnp.concatenate([tau_valid, jnp.full(n_pad, jnp.inf)])
+    arc_length = jnp.concatenate([s_valid, jnp.full(n_pad, jnp.inf)])
+
+    result_full = _bin_power_deposition(
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_valid, rho_valid, tau_valid
+    )
+
+    assert result_full.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_full)), (
+        "inf in rho_trajectory (padded slots) must be sanitized before binning"
+    )
+
+    # Power conservation: total deposited power is the same regardless of padding.
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_full = float(jnp.sum(result_full * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+    np.testing.assert_allclose(total_full, total_trimmed, rtol=0.02)
+
+
+def test_next_power_of_two():
+    """_next_power_of_two returns a small set of fixed sizes to cap XLA recompilations.
+
+    The function itself may return a value larger than the actual buffer length
+    (e.g. 4097 → 8192); the caller is responsible for clamping to the buffer
+    size so that full-length traces don't produce a unique shape.
+    """
+    assert _next_power_of_two(1) == 4
+    assert _next_power_of_two(4) == 4
+    assert _next_power_of_two(5) == 8
+    assert _next_power_of_two(8) == 8
+    assert _next_power_of_two(9) == 16
+    assert _next_power_of_two(4096) == 4096
+    # 4097 exceeds the last power-of-two bucket; the caller clamps to buffer length.
+    assert _next_power_of_two(4097) == 8192
+    # Verify the caller-side clamp: min(_next_power_of_two(4097), 4097) == 4097
+    assert min(_next_power_of_two(4097), 4097) == 4097
+
+
+def test_bin_power_bucketed_slice_matches_trimmed():
+    """Power-of-2 bucketed slice gives same deposition as exact trimmed slice.
+
+    trace(trim=True) now passes result.arc_length[:_next_power_of_two(n)] instead of
+    either result.arc_length[:n] (variable shape → recompilation) or result.arc_length
+    (full 4097 knots → spline perturbation). The bucketed slice has at most
+    bucket - n extra inf knots, which the sanitization step pushes well beyond s_max.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 13  # not a power of two → bucket = 16
+    n_bucket = _next_power_of_two(n_valid)  # 16
+    n_total = 64  # simulate a larger fixed buffer
+
+    assert n_bucket == 16
+
+    rho_valid = jnp.linspace(0.85, 0.15, n_valid)
+    tau_valid = jnp.linspace(0.0, 3.0, n_valid)
+    s_valid = jnp.linspace(0.0, 1.2, n_valid)
+
+    # Build a full diffrax-style buffer: valid entries then inf padding.
+    rho_buf = jnp.concatenate([rho_valid, jnp.full(n_total - n_valid, jnp.inf)])
+    tau_buf = jnp.concatenate([tau_valid, jnp.full(n_total - n_valid, jnp.inf)])
+    s_buf = jnp.concatenate([s_valid, jnp.full(n_total - n_valid, jnp.inf)])
+
+    result_bucketed = _bin_power_deposition(
+        rho_grid,
+        dvolume_drho,
+        s_buf[:n_bucket],
+        rho_buf[:n_bucket],
+        tau_buf[:n_bucket],
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid,
+        dvolume_drho,
+        s_valid,
+        rho_valid,
+        tau_valid,
+    )
+
+    assert result_bucketed.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_bucketed))
+
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_bucketed = float(jnp.sum(result_bucketed * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+    # Bucketed slice has only 3 extra inf knots → negligible spline perturbation.
+    np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
+
+
+def test_bin_power_deposition_single_point_returns_zeros():
+    """n_valid=1 (s_max=0) returns an all-zero deposition profile without crashing.
+
+    When the ODE solver terminates immediately (e.g., beam starts outside the
+    plasma), arc_length = [0.0] and s_max = 0.  The padding formula
+    s_max*(2+arange) would collapse all padded knots to 0, producing duplicate
+    spline knots and corrupting the interpolation.  _bin_power_deposition must
+    detect s_max==0 and return zeros instead of attempting the spline.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    # Single valid point (what diffrax produces for an immediately-terminated trace)
+    # followed by the inf padding that _next_power_of_two(1)==4 would expose.
+    arc_length = jnp.array([0.0, jnp.inf, jnp.inf, jnp.inf])
+    rho_trajectory = jnp.array([0.5, jnp.inf, jnp.inf, jnp.inf])
+    optical_depth = jnp.array([0.0, jnp.inf, jnp.inf, jnp.inf])
+
+    result = _bin_power_deposition(
+        rho_grid, dvolume_drho, arc_length, rho_trajectory, optical_depth
+    )
+
+    assert result.shape == rho_grid.shape
+    assert jnp.all(result == 0.0), "Single-point trace must return zero deposition"
+
+
+def test_bin_power_large_bucket_profile_matches_trimmed():
+    """n=2049 → bucket=4096 (2047 padding slots) preserves total power and profile shape.
+
+    Catches rho-padding bugs: using rho=0 for padding knots distorts the cubic
+    spline's boundary derivative at s_max, creating artifacts near the trajectory end.
+    """
+    rho_grid = jnp.linspace(0.0, 1.0, 20)
+    dvolume_drho = jnp.ones(20)
+
+    n_valid = 2049  # just above a bucket boundary → bucket = 4096
+    n_bucket = _next_power_of_two(n_valid)
+    assert n_bucket == 4096
+
+    # Last rho is 0.45 (not 0), so zero-padding would distort the boundary derivative.
+    rho_valid = jnp.linspace(0.9, 0.45, n_valid)
+    tau_valid = jnp.linspace(0.0, 3.5, n_valid)
+    s_valid = jnp.linspace(0.0, 2.5, n_valid)
+
+    n_pad = n_bucket - n_valid  # 2047
+    rho_buf = jnp.concatenate([rho_valid, jnp.full(n_pad, jnp.inf)])
+    tau_buf = jnp.concatenate([tau_valid, jnp.full(n_pad, jnp.inf)])
+    s_buf = jnp.concatenate([s_valid, jnp.full(n_pad, jnp.inf)])
+
+    result_bucketed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_buf, rho_buf, tau_buf
+    )
+    result_trimmed = _bin_power_deposition(
+        rho_grid, dvolume_drho, s_valid, rho_valid, tau_valid
+    )
+
+    assert result_bucketed.shape == rho_grid.shape
+    assert jnp.all(jnp.isfinite(result_bucketed))
+
+    edges = jnp.concatenate(
+        [rho_grid[:1], 0.5 * (rho_grid[:-1] + rho_grid[1:]), rho_grid[-1:]]
+    )
+    dV = dvolume_drho * jnp.diff(edges)
+    total_bucketed = float(jnp.sum(result_bucketed * dV))
+    total_trimmed = float(jnp.sum(result_trimmed * dV))
+
+    # Total power and per-bin profile must match (latter catches spline boundary artifacts).
+    np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
+    np.testing.assert_allclose(result_bucketed, result_trimmed, rtol=0.05, atol=1e-6)

@@ -40,7 +40,6 @@ extra_javascript = [
 ]
 
 [project.theme]
-name = "zensical"
 logo = "assets/proxima.svg"
 favicon = "assets/proxima.svg"
 features = [
