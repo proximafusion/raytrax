@@ -448,6 +448,13 @@ def build_electron_density_profile_interpolator(
         # s1 = (1 - boundary_layer_width)^2, s2 = rho_max^2 (= 1 for a
         # profile that reaches rho=1).
         rho_max = float(jnp.max(rho))
+        if rho_max <= 0.0:
+            raise ValueError(f"rho_max must be positive, got {rho_max!r}.")
+        if not (0.0 < boundary_layer_width <= rho_max):
+            raise ValueError(
+                f"boundary_layer_width must be in (0, rho_max={rho_max!r}], "
+                f"got {boundary_layer_width!r}."
+            )
         s2 = rho_max**2
         s1 = (rho_max - boundary_layer_width) ** 2
         s = rho**2

@@ -46,7 +46,10 @@ def _shkarofsky_sequence(
     z_plus = Z(psi - phi)
     z_minus = Z(-psi - phi)
     f0_nonzero = -(z_plus + z_minus) / (2 * phi)
-    f1_nonzero = -(z_plus - z_minus) / (2 * psi)
+    # Use a safe denominator to avoid 0/0: jnp.where evaluates both branches,
+    # so replace psi with 1 when at the base threshold to suppress NaN/Inf.
+    safe_psi = jnp.where(is_psi_zero_base, jnp.ones_like(psi), psi)
+    f1_nonzero = -(z_plus - z_minus) / (2 * safe_psi)
 
     # F_{1/2}, eq. 31. For F_{3/2} in the psi -> 0 limit we use -Z'(-phi);
     # the original paper appears to have a sign typo for this term.

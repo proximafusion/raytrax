@@ -223,14 +223,14 @@ def test_shkarofsky_sequence_f12_small_psi():
     )
 
 
-def test_shkarofsky_sequence_f72_recur_threshold():
-    """F_{7/2} (q=3) switches to the psi->0 recurrence at _PSI_TOLERANCE_RECUR.
+def test_shkarofsky_sequence_f72_zero_branch_accuracy():
+    """F_{7/2} (q=3) zero-branch recurrence is accurate below _PSI_TOLERANCE_RECUR.
 
     Checks that:
-    - Below the threshold the zero-branch recurrence is used, giving O(psi^2)
-      accuracy relative to the exact psi=0 value (~0.1% at psi=0.05).
-    - Above the threshold the nonzero recurrence blows up catastrophically
-      (errors >> 1 for small psi values well above machine precision).
+    - At psi=1e-3 (well below the threshold) the result agrees with the exact
+      psi=0 value to within O(psi^2) ~ 1e-4 relative error.
+    - At psi=1e-4 (also below the threshold) the zero-branch gives the same
+      accuracy, confirming it does not degrade for very small psi.
     """
     phi = complex(1.0, 0.0)
 
@@ -241,16 +241,9 @@ def test_shkarofsky_sequence_f72_recur_threshold():
     value_small_psi = shkarofsky._shkarofsky_sequence(1e-3, phi, q_max=3)[3]
     np.testing.assert_allclose(value_small_psi, value_zero, rtol=1e-4)
 
-    # Just above threshold (psi = recur_limit * 1.1): nonzero recurrence is
-    # numerically unstable here.  For psi~0.05 it still works at ~0.1% level;
-    # the catastrophic blowup is at psi << recur_limit.
-    # Confirm that at psi=1e-4 (well below threshold) the nonzero branch gives
-    # garbage by temporarily bypassing the threshold guard.
+    # Also check at psi=1e-4 (even further below threshold): zero-branch still
+    # accurate.
     tiny_psi = 1e-4
-    # Direct call to the nonzero recurrence formula at tiny_psi to verify blowup:
-    # f_nonzero = (1 + phi^2 * f_prev - (q-1.5)*f_prev1) / psi^2
-    # For q=3, psi=1e-4: denominator=1e-8 amplifies any numerical error hugely.
-    # The zero-branch correctly returns ~value_zero:
     value_tiny_zero_branch = shkarofsky._shkarofsky_sequence(tiny_psi, phi, q_max=3)[3]
     np.testing.assert_allclose(
         value_tiny_zero_branch,

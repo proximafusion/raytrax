@@ -329,7 +329,7 @@ def test_absorption_coefficient_smooth_in_n_par():
     Requirements tested:
     - alpha is finite and non-negative for all n_par in [-0.3, 0.3]
     - alpha varies smoothly: no jumps larger than 5x the median step size
-    - alpha(n_par=0) agrees with alpha(n_par=1e-4) to within 1%
+    - alpha(n_par=0) agrees with alpha(n_par=±0.01) to within 1%
       (the psi->0 limit must be continuous)
     """
     # 2nd-harmonic X-mode near ECR (B chosen so f == 2*f_ce)
