@@ -69,10 +69,11 @@ profiles = raytrax.RadialProfiles(
 ```
 
 !!! tip "Profiles with non-zero density at the boundary"
-    If $n_e(\rho{=}1) > 0$, pass `boundary_layer_width=0.1` to [`trace`][raytrax.api.trace].  This smoothly tapers the density to zero over the outermost 10% of the minor radius and avoids a spurious discontinuity at the plasma–vacuum interface.
+    If $n_e(\rho{=}1) > 0$, call [`with_tapered_density`][raytrax.types.RadialProfiles.with_tapered_density] on the profiles object before tracing.  This smoothly tapers the density to zero over the outermost 10% of the minor radius and avoids a spurious discontinuity at the plasma-vacuum interface.
 
     ```python
-    result = raytrax.trace(mag_conf, profiles, beam, boundary_layer_width=0.1)
+    profiles_tapered = profiles.with_tapered_density(boundary_layer_width=0.1)
+    result = raytrax.trace(mag_conf, profiles_tapered, beam)
     ```
 
 The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a unit 3-vector), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:

@@ -168,7 +168,6 @@ def _run_trace(
     radial_profiles: RadialProfiles,
     beam: Beam,
     settings: TracerSettings,
-    boundary_layer_width: float = 0.0,
 ) -> tuple[TraceBuffers, jax.Array]:
     """Build interpolators and run the JIT-compiled ODE solve."""
     setting = RaySetting(
@@ -177,9 +176,7 @@ def _run_trace(
     interpolators = Interpolators(
         magnetic_field=build_magnetic_field_interpolator(magnetic_configuration),
         rho=build_rho_interpolator(magnetic_configuration),
-        electron_density=build_electron_density_profile_interpolator(
-            radial_profiles, boundary_layer_width=boundary_layer_width
-        ),
+        electron_density=build_electron_density_profile_interpolator(radial_profiles),
         electron_temperature=build_electron_temperature_profile_interpolator(
             radial_profiles
         ),
@@ -201,7 +198,6 @@ def trace(
     beam: Beam,
     trim: bool = True,
     settings: TracerSettings = TracerSettings(),
-    boundary_layer_width: float = 0.0,
 ) -> TraceResult:
     """Trace a single beam through the plasma.
 
@@ -214,19 +210,12 @@ def trace(
             Note: this parameter may be removed in a future release.
         settings: ODE solver settings (tolerances, step sizes, termination
             thresholds). Defaults to :class:`TracerSettings` with sensible values.
-        boundary_layer_width: Width of a cosine taper applied to the electron
-            density near the last closed flux surface (LCFS), in units of
-            normalised effective radius ρ.  ``0.0`` (default) disables the
-            taper.  A value of ``0.1`` smoothly zeros the profile over the
-            outermost 10% of the minor radius, preventing the large Hamiltonian
-            jump that arises when the supplied profile does not vanish at ρ=1.
-            Recommended when ``ne(ρ=1) > 0``.
 
     Returns:
         TraceResult with beam profile and radial deposition profile.
     """
     result, n_valid = _run_trace(
-        magnetic_configuration, radial_profiles, beam, settings, boundary_layer_width
+        magnetic_configuration, radial_profiles, beam, settings
     )
 
     if not trim:

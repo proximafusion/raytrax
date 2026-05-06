@@ -8,6 +8,7 @@ to cylindrical coordinates ($r$, $\phi$, $z$).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
@@ -402,77 +403,38 @@ def build_rho_interpolator(
     )
 
 
+_NE_EDGE_WARN_THRESHOLD = 1e-3  # 10^17 m^-3, effectively zero for fusion plasmas
+
+
 def build_electron_density_profile_interpolator(
     radial_profiles: RadialProfiles,
-    boundary_layer_width: float = 0.0,
 ) -> interpax.Interpolator1D:
     r"""Build electron density profile interpolator.
 
-    Optionally applies a cosine taper to the electron density near the last
-    closed flux surface (LCFS) to avoid a discontinuous jump at the
-    vacuum-plasma boundary, following the approach of TRAVIS
-    (Marushchenko et al., *plasma_profiles.f90*).  The taper multiplies the
-    profile by
-
-    .. math::
-
-        w(\rho) = \frac{1}{2}\left[1 + \cos\!\left(
-            \pi\,\frac{\rho^2 - \rho_1^2}{1 - \rho_1^2}
-        \right)\right], \quad \rho_1 \le \rho \le 1,
-
-    where :math:`\rho_1 = \sqrt{1 - \Delta}` and
-    :math:`\Delta = 2\,\text{boundary\_layer\_width} - \text{boundary\_layer\_width}^2`
-    is the corresponding interval in :math:`s = \rho^2` space.
-
-    A non-zero ``boundary_layer_width`` is recommended whenever the supplied
-    profile does not go to zero at :math:`\\rho = 1`, because the extrapolator
-    hard-clamps ``ne = 0`` outside the LCFS, creating a large Hamiltonian jump
-    at the first plasma step that causes the ray to trace the wrong dispersion
-    surface throughout the plasma.
-
     Args:
-        radial_profiles: The radial profiles.
-        boundary_layer_width: Width of the cosine taper in :math:`\\rho` units
-            (i.e. fraction of the minor radius).  ``0.0`` (default) disables
-            the taper.  A value of ``0.1`` means the taper acts over the
-            outermost 10% of the minor radius.
+        radial_profiles: The radial profiles.  If the electron density does not
+            taper to zero at :math:`\rho = 1`, consider passing
+            ``radial_profiles.with_tapered_density(0.1)`` instead to avoid a
+            hard discontinuity at the plasma–vacuum interface.
 
     Returns:
         An interpax.Interpolator1D that maps rho to electron density.
     """
-    rho = radial_profiles.rho
-    ne = radial_profiles.electron_density
-
-    if boundary_layer_width > 0.0:
-        # Work in s = rho^2 space (same as TRAVIS).
-        # s1 = (1 - boundary_layer_width)^2, s2 = rho_max^2 (= 1 for a
-        # profile that reaches rho=1).
-        rho_max = float(jnp.max(rho))
-        if rho_max <= 0.0:
-            raise ValueError(f"rho_max must be positive, got {rho_max!r}.")
-        if not (0.0 < boundary_layer_width <= rho_max):
-            raise ValueError(
-                f"boundary_layer_width must be in (0, rho_max={rho_max!r}], "
-                f"got {boundary_layer_width!r}."
-            )
-        s2 = rho_max**2
-        s1 = (rho_max - boundary_layer_width) ** 2
-        s = rho**2
-        # cosine weight: 1 inside, smooth 1->0 over [s1, s2]
-        weight = jnp.where(
-            s <= s1,
-            1.0,
-            jnp.where(
-                s >= s2,
-                0.0,
-                0.5 * (1.0 + jnp.cos(jnp.pi * (s - s1) / (s2 - s1))),
-            ),
+    ne_edge = float(radial_profiles.electron_density[-1])
+    if ne_edge > _NE_EDGE_WARN_THRESHOLD:
+        warnings.warn(
+            f"Electron density at the LCFS (rho=1) is {ne_edge:.3g} \u00d7 10\u00b2\u2070 m\u207b\u00b3, "
+            "which is not zero. The extrapolator hard-clamps ne=0 outside the LCFS, "
+            "creating a discontinuity that can cause spurious ray behaviour. "
+            "Consider using radial_profiles.with_tapered_density(0.1) to smoothly "
+            "taper the density to zero over the outermost 10% of the minor radius.",
+            UserWarning,
+            stacklevel=2,
         )
-        ne = ne * weight
 
     return interpax.Interpolator1D(
-        x=rho,
-        f=ne,
+        x=radial_profiles.rho,
+        f=radial_profiles.electron_density,
         method="linear",
         extrap=0.0,
     )

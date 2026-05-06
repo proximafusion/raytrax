@@ -219,3 +219,59 @@ class RadialProfiles:
 
     electron_temperature: jt.Float[jax.Array, " nrho"]
     """The electron temperature profile in keV."""
+
+    def with_tapered_density(self, boundary_layer_width: float) -> "RadialProfiles":
+        r"""Return a copy with the electron density tapered to zero near the LCFS.
+
+        Applies a cosine taper to :attr:`electron_density` over the outermost
+        ``boundary_layer_width`` fraction of the minor radius, following the
+        approach used by TRAVIS (*plasma_profiles.f90*).  The taper multiplies
+        the profile by
+
+        .. math::
+
+            w(\rho) = \frac{1}{2}\left[1 + \cos\!\left(
+                \pi\,\frac{\rho^2 - \rho_1^2}{\rho_{\max}^2 - \rho_1^2}
+            \right)\right], \quad \rho_1 \le \rho \le \rho_{\max},
+
+        where :math:`\rho_1 = \rho_{\max} - \text{boundary\_layer\_width}`
+        (in :math:`s = \rho^2` space).
+
+        Use this whenever :math:`n_e(\rho{=}1) > 0` to avoid a hard
+        discontinuity at the plasma–vacuum interface that would cause spurious
+        ray behaviour.
+
+        Args:
+            boundary_layer_width: Width of the taper in :math:`\rho` units
+                (fraction of the minor radius).  Must satisfy
+                ``0 < boundary_layer_width <= rho_max``.
+
+        Returns:
+            A new :class:`RadialProfiles` with tapered :attr:`electron_density`
+            and the same :attr:`rho` and :attr:`electron_temperature`.
+        """
+        rho_max = float(jnp.max(self.rho))
+        if rho_max <= 0.0:
+            raise ValueError(f"rho_max must be positive, got {rho_max!r}.")
+        if not (0.0 < boundary_layer_width <= rho_max):
+            raise ValueError(
+                f"boundary_layer_width must be in (0, rho_max={rho_max!r}], "
+                f"got {boundary_layer_width!r}."
+            )
+        s2 = rho_max**2
+        s1 = (rho_max - boundary_layer_width) ** 2
+        s = self.rho**2
+        weight = jnp.where(
+            s <= s1,
+            1.0,
+            jnp.where(
+                s >= s2,
+                0.0,
+                0.5 * (1.0 + jnp.cos(jnp.pi * (s - s1) / (s2 - s1))),
+            ),
+        )
+        return RadialProfiles(
+            rho=self.rho,
+            electron_density=self.electron_density * weight,
+            electron_temperature=self.electron_temperature,
+        )
