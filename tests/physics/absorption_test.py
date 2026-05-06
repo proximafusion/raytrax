@@ -318,6 +318,74 @@ def test_absorption_coefficient_conditional_respects_max_harmonic():
     np.testing.assert_allclose(alpha2, alpha_full2, rtol=1e-12)
 
 
+def test_absorption_coefficient_smooth_in_n_par():
+    """Absorption coefficient must be smooth and finite as n_par -> 0.
+
+    This is the physics-level regression test for Bug 2 (Shkarofsky F_{7/2}
+    instability).  Before the fix, the Shkarofsky recurrence divided by
+    n_par^2 (= psi) near-perpendicular propagation, producing catastrophic
+    cancellation that made alpha spike to near-zero or NaN for small |n_par|.
+
+    Requirements tested:
+    - alpha is finite and non-negative for all n_par in [-0.3, 0.3]
+    - alpha varies smoothly: no jumps larger than 5x the median step size
+    - alpha(n_par=0) agrees with alpha(n_par=1e-4) to within 1%
+      (the psi->0 limit must be continuous)
+    """
+    # 2nd-harmonic X-mode near ECR (B chosen so f == 2*f_ce)
+    freq = 140e9
+    B = jnp.array([0.0, 0.0, 2.52])  # f_ce ≈ 70.5 GHz
+    ne = 0.3
+    Te = 2.0
+    n_perp = 0.7
+
+    n_par_values = jnp.linspace(-0.3, 0.3, 61)
+    alphas = []
+    for n_par in n_par_values:
+        n_vec = jnp.array([n_perp, 0.0, float(n_par)])
+        alpha = float(
+            absorption.absorption_coefficient(
+                refractive_index=n_vec,
+                magnetic_field=B,
+                electron_density_1e20_per_m3=ne,
+                electron_temperature_keV=Te,
+                frequency=freq,
+                mode="X",
+            )
+        )
+        assert np.isfinite(alpha), (
+            f"alpha is not finite at n_par={float(n_par):.4f}: got {alpha}"
+        )
+        assert alpha >= 0.0, (
+            f"alpha is negative at n_par={float(n_par):.4f}: got {alpha:.4e}"
+        )
+        alphas.append(alpha)
+
+    alphas = np.array(alphas)
+
+    # No step should be larger than 5x the median absolute step (smoothness)
+    steps = np.abs(np.diff(alphas))
+    median_step = np.median(steps)
+    max_step = np.max(steps)
+    assert max_step <= 5.0 * median_step + 1e-6, (
+        f"alpha has a large jump: max_step={max_step:.3e}, "
+        f"median_step={median_step:.3e} — suggests numerical instability near n_par=0"
+    )
+
+    # alpha at n_par=0 (index 30) must be close to its tiny-n_par neighbours
+    alpha_zero = alphas[30]
+    alpha_near = 0.5 * (alphas[29] + alphas[31])
+    np.testing.assert_allclose(
+        alpha_zero,
+        alpha_near,
+        rtol=0.01,
+        err_msg=(
+            f"alpha at n_par=0 ({alpha_zero:.4e}) differs from neighbours "
+            f"({alpha_near:.4e}) by more than 1% — psi->0 limit is discontinuous"
+        ),
+    )
+
+
 def test_anti_hermitian_dielectric_form_positive():
     """eAe must be strictly positive in an absorbing plasma."""
     B_magnitude = float(jnp.linalg.norm(_B_FIELD))

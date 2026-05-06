@@ -53,7 +53,7 @@ mag_conf = raytrax.MagneticConfiguration.from_vmec_wout(vmec_wout)
 
 You can save the configuration to a file and load it back with the object's `.save` and `.load` methods.
 
-The **[`RadialProfiles`][raytrax.types.RadialProfiles]** are gridded one-dimensional profiles for the electron density $n_e$ (in units of 10<sup>20</sup>/m³) and temperature $T_e$ (in units of keV) as a function of the effective minor radius $\rho$, which must extend from 0 to 1. You should ensure that both density and temperature are zero at the plasma boundary ($\rho$). Example:
+The **[`RadialProfiles`][raytrax.types.RadialProfiles]** are gridded one-dimensional profiles for the electron density $n_e$ (in units of 10<sup>20</sup>/m³) and temperature $T_e$ (in units of keV) as a function of the effective minor radius $\rho$, which must extend from 0 to 1. Example:
 
 ```python
 import raytrax, jax.numpy as jnp
@@ -67,6 +67,13 @@ profiles = raytrax.RadialProfiles(
     electron_temperature=T_e
 )
 ```
+
+!!! tip "Profiles with non-zero density at the boundary"
+    If $n_e(\rho{=}1) > 0$, pass `boundary_layer_width=0.1` to [`trace`][raytrax.api.trace].  This smoothly tapers the density to zero over the outermost 10% of the minor radius and avoids a spurious discontinuity at the plasma–vacuum interface.
+
+    ```python
+    result = raytrax.trace(mag_conf, profiles, beam, boundary_layer_width=0.1)
+    ```
 
 The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a unit 3-vector), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:
 

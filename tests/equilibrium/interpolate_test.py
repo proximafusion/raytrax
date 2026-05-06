@@ -701,3 +701,143 @@ def test_axisymmetric_jit_and_vmap(tokamak_magnetic_configuration):
     rho_all = jax.vmap(eval_rho_jit)(positions)
     assert rho_all.shape == (3,)
     assert jnp.all(jnp.isfinite(rho_all))
+
+
+# ---------------------------------------------------------------------------
+# Bug regression: ne boundary discontinuity at the LCFS
+# ---------------------------------------------------------------------------
+
+
+def test_ne_interpolator_no_discontinuity_at_lcfs_with_nonzero_edge():
+    """ne interpolator must not jump to zero exactly at rho=1 when ne(1)>0.
+
+    Before the cosine-taper fix, the interpolator used extrap=0.0, so querying
+    at rho=1.0 (which falls on the grid boundary) could return a value close to
+    zero while rho=0.999 returned the true ne, creating a large step that
+    propagated into a spurious spike in the absorption coefficient.
+    """
+    n = 50
+    rho_profile = jnp.linspace(0.0, 1.0, n)
+    # Profile that is non-zero at rho=1: ne(1) = 0.5
+    ne_profile = 0.5 + 0.5 * (1.0 - rho_profile**2)
+
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=ne_profile,
+        electron_temperature=jnp.ones(n),
+    )
+    ne_interp = build_electron_density_profile_interpolator(radial_profiles)
+
+    # Without a taper, the profile is unchanged inside the grid but must be
+    # continuous: ne(0.99) and ne(1.0) should agree with the analytic formula.
+    for rho_test in [0.0, 0.5, 0.99, 1.0]:
+        ne_val = float(ne_interp(jnp.array(rho_test)))
+        expected = float(0.5 + 0.5 * (1.0 - rho_test**2))
+        np.testing.assert_allclose(
+            ne_val,
+            expected,
+            rtol=1e-3,
+            err_msg=f"ne({rho_test}) = {ne_val:.6f}, expected {expected:.6f}",
+        )
+
+
+def test_ne_interpolator_taper_is_smooth_and_zero_at_lcfs():
+    """Cosine taper must smoothly drive ne to zero at rho=1 for a non-zero edge profile.
+
+    This is the core regression test for Bug 1: before the fix, a profile with
+    ne(1) > 0 created a discontinuous step to vacuum. The taper must:
+    - equal the original profile deep inside (rho << rho1)
+    - reach exactly zero at rho=1
+    - be monotonically decreasing over the taper region
+    """
+    n = 200
+    rho_profile = jnp.linspace(0.0, 1.0, n)
+    # Non-zero at edge
+    ne_profile = 1.0 - 0.5 * rho_profile**2  # ne(1) = 0.5
+
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=ne_profile,
+        electron_temperature=jnp.ones(n),
+    )
+    boundary_layer_width = 0.1
+    ne_interp = build_electron_density_profile_interpolator(
+        radial_profiles, boundary_layer_width=boundary_layer_width
+    )
+
+    # Deep inside: taper weight == 1, value matches original profile
+    for rho_test in [0.0, 0.3, 0.5, 0.8]:
+        ne_val = float(ne_interp(jnp.array(rho_test)))
+        expected = float(1.0 - 0.5 * rho_test**2)
+        np.testing.assert_allclose(
+            ne_val,
+            expected,
+            rtol=1e-3,
+            err_msg=f"Taper should not affect interior: ne({rho_test})={ne_val:.6f}",
+        )
+
+    # At rho=1 the tapered profile must be zero (or within floating-point of zero)
+    ne_at_lcfs = float(ne_interp(jnp.array(1.0)))
+    np.testing.assert_allclose(
+        ne_at_lcfs,
+        0.0,
+        atol=1e-6,
+        err_msg=f"Tapered ne at rho=1 must be zero, got {ne_at_lcfs:.3e}",
+    )
+
+    # Monotone decrease over the taper region
+    rho_taper = jnp.linspace(1.0 - boundary_layer_width, 1.0, 30)
+    ne_taper = jnp.array([float(ne_interp(r)) for r in rho_taper])
+    diffs = jnp.diff(ne_taper)
+    assert jnp.all(diffs <= 1e-10), (
+        "Tapered ne must be non-increasing over the boundary layer"
+    )
+
+
+def test_ne_interpolator_zero_edge_profile_unaffected_by_taper():
+    """Taper must not change ne deep inside the plasma when ne(rho=1)==0.
+
+    The cosine taper only acts in the outermost ``boundary_layer_width``
+    fraction of the minor radius.  Deep inside (rho <= 1 - boundary_layer_width)
+    the weight is exactly 1, so the tapered interpolator must agree with the
+    plain one there.
+
+    In the taper region the weight is < 1, so tapered values will be smaller
+    than the plain ones -- that is intentional and is not tested here.
+    """
+    n = 50
+    rho_profile = jnp.linspace(0.0, 1.0, n)
+    ne_profile = 1.0 - rho_profile**2  # naturally zero at rho=1
+
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=ne_profile,
+        electron_temperature=jnp.ones(n),
+    )
+    boundary_layer_width = 0.1
+    ne_no_taper = build_electron_density_profile_interpolator(radial_profiles)
+    ne_tapered = build_electron_density_profile_interpolator(
+        radial_profiles, boundary_layer_width=boundary_layer_width
+    )
+
+    # Deep interior: well inside the taper start at rho = 1 - 0.1 = 0.9
+    for rho_test in jnp.linspace(0.0, 0.85, 10):
+        val_plain = float(ne_no_taper(rho_test))
+        val_taper = float(ne_tapered(rho_test))
+        np.testing.assert_allclose(
+            val_taper,
+            val_plain,
+            rtol=1e-6,
+            err_msg=(
+                f"Taper changed deep interior at rho={float(rho_test):.3f}: "
+                f"{val_plain:.6e} -> {val_taper:.6e}"
+            ),
+        )
+
+    # rho=1 must remain zero (taper must not inject spurious density at the edge)
+    np.testing.assert_allclose(
+        float(ne_tapered(jnp.array(1.0))),
+        0.0,
+        atol=1e-12,
+        err_msg="Tapered ne at rho=1 must stay zero for a zero-edge profile",
+    )

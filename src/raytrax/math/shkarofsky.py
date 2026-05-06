@@ -11,7 +11,18 @@ from raytrax.math.faddeeva import (
 )
 from raytrax.types import ScalarFloat
 
-_PSI_TOLERANCE = 1e-6  # Tolerance for checking if psi is zero
+# F_{1/2} and F_{3/2} are Z-function base cases — stable at any psi, only need
+# a tiny threshold to avoid literal 0/0 in the (z_plus - z_minus)/(2*psi) formula.
+_PSI_TOLERANCE_BASE = 1e-6
+
+# Upward recurrence (q≥2): F_q = (1 + phi²·F_{q-2} - (q-1.5)·F_{q-1}) / psi²
+# has catastrophic cancellation as psi→0 (error amplifies as ε/psi^{2q} per step,
+# blowing up F_{7/2} by ×20000 at psi=5e-5). Switch to the psi=0 approximation
+# (error O(psi²) < 0.25%) for psi below this threshold.
+_PSI_TOLERANCE_RECUR = 0.05
+
+# Keep the old name as an alias so external references don't break.
+_PSI_TOLERANCE = _PSI_TOLERANCE_RECUR
 
 
 @functools.partial(jax.jit, static_argnames=["q_max"])
@@ -24,7 +35,12 @@ def _shkarofsky_sequence(
     if q_max < 0:
         return []
 
-    is_psi_zero = jnp.abs(psi) < _PSI_TOLERANCE
+    # Base cases use a tight threshold: the nonzero formulas are well-conditioned
+    # for all psi down to ~1e-6; only at literal psi=0 do we get 0/0 in f1_nonzero.
+    is_psi_zero_base = jnp.abs(psi) < _PSI_TOLERANCE_BASE
+    # Recurrence uses a wide threshold to avoid catastrophic cancellation in the
+    # psi² denominator (error amplifies as phi²/psi² per step).
+    is_psi_zero_recur = jnp.abs(psi) < _PSI_TOLERANCE_RECUR
 
     # F_{1/2} and F_{3/2}, eqs. 29-30 of Krivensky and Orefice (psi != 0).
     z_plus = Z(psi - phi)
@@ -36,8 +52,8 @@ def _shkarofsky_sequence(
     # the original paper appears to have a sign typo for this term.
     f0_zero = -Z(-phi) / phi
     f1_zero = -Z_prime(-phi)
-    f0 = jnp.where(is_psi_zero, f0_zero, f0_nonzero)
-    f1 = jnp.where(is_psi_zero, f1_zero, f1_nonzero)
+    f0 = jnp.where(is_psi_zero_base, f0_zero, f0_nonzero)
+    f1 = jnp.where(is_psi_zero_base, f1_zero, f1_nonzero)
 
     if q_max == 0:
         return [f0]
@@ -55,7 +71,7 @@ def _shkarofsky_sequence(
         # psi -> 0 limit of eq. 26:
         # F_{q+1/2} = (phi^2 * F_{q-1/2} + 1) / (q - 1/2)
         f_zero = (phi**2 * f_prev1 + 1.0) / (q - 0.5)
-        f_q = jnp.where(is_psi_zero, f_zero, f_nonzero)
+        f_q = jnp.where(is_psi_zero_recur, f_zero, f_nonzero)
         results.append(f_q)
         f_prev2 = f_prev1
         f_prev1 = f_q

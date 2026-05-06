@@ -404,18 +404,68 @@ def build_rho_interpolator(
 
 def build_electron_density_profile_interpolator(
     radial_profiles: RadialProfiles,
+    boundary_layer_width: float = 0.0,
 ) -> interpax.Interpolator1D:
-    """Build electron density profile interpolator.
+    r"""Build electron density profile interpolator.
+
+    Optionally applies a cosine taper to the electron density near the last
+    closed flux surface (LCFS) to avoid a discontinuous jump at the
+    vacuum-plasma boundary, following the approach of TRAVIS
+    (Marushchenko et al., *plasma_profiles.f90*).  The taper multiplies the
+    profile by
+
+    .. math::
+
+        w(\rho) = \frac{1}{2}\left[1 + \cos\!\left(
+            \pi\,\frac{\rho^2 - \rho_1^2}{1 - \rho_1^2}
+        \right)\right], \quad \rho_1 \le \rho \le 1,
+
+    where :math:`\rho_1 = \sqrt{1 - \Delta}` and
+    :math:`\Delta = 2\,\text{boundary\_layer\_width} - \text{boundary\_layer\_width}^2`
+    is the corresponding interval in :math:`s = \rho^2` space.
+
+    A non-zero ``boundary_layer_width`` is recommended whenever the supplied
+    profile does not go to zero at :math:`\\rho = 1`, because the extrapolator
+    hard-clamps ``ne = 0`` outside the LCFS, creating a large Hamiltonian jump
+    at the first plasma step that causes the ray to trace the wrong dispersion
+    surface throughout the plasma.
 
     Args:
         radial_profiles: The radial profiles.
+        boundary_layer_width: Width of the cosine taper in :math:`\\rho` units
+            (i.e. fraction of the minor radius).  ``0.0`` (default) disables
+            the taper.  A value of ``0.1`` means the taper acts over the
+            outermost 10% of the minor radius.
 
     Returns:
         An interpax.Interpolator1D that maps rho to electron density.
     """
+    rho = radial_profiles.rho
+    ne = radial_profiles.electron_density
+
+    if boundary_layer_width > 0.0:
+        # Work in s = rho^2 space (same as TRAVIS).
+        # s1 = (1 - boundary_layer_width)^2, s2 = rho_max^2 (= 1 for a
+        # profile that reaches rho=1).
+        rho_max = float(jnp.max(rho))
+        s2 = rho_max**2
+        s1 = (rho_max - boundary_layer_width) ** 2
+        s = rho**2
+        # cosine weight: 1 inside, smooth 1->0 over [s1, s2]
+        weight = jnp.where(
+            s <= s1,
+            1.0,
+            jnp.where(
+                s >= s2,
+                0.0,
+                0.5 * (1.0 + jnp.cos(jnp.pi * (s - s1) / (s2 - s1))),
+            ),
+        )
+        ne = ne * weight
+
     return interpax.Interpolator1D(
-        x=radial_profiles.rho,
-        f=radial_profiles.electron_density,
+        x=rho,
+        f=ne,
         method="linear",
         extrap=0.0,
     )
