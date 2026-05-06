@@ -64,12 +64,6 @@ class TravisECRHInput:
     te_parm: tuple[float, float, float, float, float] = (0.0, 1.0, 2.0, 0.0, 0.0)
     """TRAVIS Te-parm parameters (a, p, q, h, w) for analytic profile."""
 
-    polarization: str = "X"
-    """Wave polarization mode: 'X' or 'O'."""
-
-    boundary_layer_width: float = 0.0
-    """Edge taper width in normalized rho units (dr/a). Matches raytrax boundary_layer_width."""
-
 
 @dataclass
 class TravisECRHOutput:
@@ -149,24 +143,17 @@ def _write_travis_input_files(params: TravisECRHInput, output_dir: Path) -> None
     if not params.equilibrium_file:
         raise ValueError("Equilibrium file is required")
 
-    # TRAVIS resolves paths relative to its working dir (output_dir).
-    # Copy or symlink the equilibrium file there so a relative path works.
-    eq_src = Path(params.equilibrium_file)
-    eq_local = output_dir / eq_src.name
-    if not eq_local.exists():
-        import shutil
-
-        shutil.copy2(eq_src, eq_local)
-    equilibrium_str = eq_src.name  # relative path
+    # Use equilibrium path as-is - TRAVIS will resolve it
+    equilibrium_str = str(params.equilibrium_file)
 
     # Always use analytic plasma profiles
     ne_central = (
-        float(params.electron_density_1e20[0])
+        params.electron_density_1e20[0]
         if params.electron_density_1e20 is not None
         else 1.0
     )
     te_central = (
-        float(params.electron_temperature_keV[0])
+        params.electron_temperature_keV[0]
         if params.electron_temperature_keV is not None
         else 3.0
     )
@@ -174,16 +161,7 @@ def _write_travis_input_files(params: TravisECRHInput, output_dir: Path) -> None
     ne_parm_str = " ".join(str(x) for x in params.ne_parm)
     te_parm_str = " ".join(str(x) for x in params.te_parm)
 
-    if params.rho_grid is not None:
-        profile_file = output_dir / "plasma_profiles.dat"
-        _write_plasma_profile_file(params, profile_file)
-        plasma_section = f"""File_with_plasma_profiles {profile_file} tabulated
-Central_Ne_[1e20/m^3] {ne_central}
-Ne-parm {ne_parm_str}
-Central_Te_[keV] {te_central}
-Te-parm {te_parm_str}"""
-    else:
-        plasma_section = f"""File_with_plasma_profiles nofile analytic
+    plasma_section = f"""File_with_plasma_profiles nofile analytic
 Central_Ne_[1e20/m^3] {ne_central}
 Ne-parm {ne_parm_str}
 Central_Te_[keV] {te_central}
@@ -217,7 +195,7 @@ Accuracy_[m] 0.001
 gridStep_[m] 0.022
 gridStep_[degree] 2
 Bmn_truncation_level 2e-05
-Plasma_size(rmax/a)_and_edge_width(dr/a) 1 {params.boundary_layer_width}
+Plasma_size(rmax/a)_and_edge_width(dr/a) 1 0
 {plasma_section}
 Central_Zeff 1.5
 Zeff-parm 0 1 1 0 0
@@ -232,7 +210,7 @@ Number_of_beams 1
 ******Single ray*****
 Beam_id 1
 Beam_name single_ray
-Heating_Scenario {params.polarization}
+Heating_Scenario O
 Frequency_[GHz] {params.frequency_ghz}
 Input_power_[MW] {params.power_mw}
 Antenna_position {params.antenna_position_cyl[0]} {params.antenna_position_cyl[1]} {params.antenna_position_cyl[2]} 0
@@ -292,11 +270,6 @@ def _write_plasma_profile_file(params: TravisECRHInput, filepath: Path) -> None:
 def _execute_travis(travis_executable: Path, output_dir: Path) -> None:
     """Execute TRAVIS."""
     input_file = output_dir / "travis_input.data"
-
-    # Prefer travis-nc (NetCDF-enabled) if available next to the given executable
-    travis_nc = travis_executable.parent / (travis_executable.name + "-nc")
-    if travis_nc.exists():
-        travis_executable = travis_nc
 
     result = subprocess.run(
         [str(travis_executable), str(input_file)],
