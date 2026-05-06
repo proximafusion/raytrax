@@ -413,7 +413,7 @@ def build_electron_density_profile_interpolator(
 
     Args:
         radial_profiles: The radial profiles.  If the electron density does not
-            taper to zero at :math:`\rho = 1`, consider passing
+            taper to zero at $\rho = 1$, consider passing
             ``radial_profiles.with_tapered_density(0.1)`` instead to avoid a
             hard discontinuity at the plasma–vacuum interface.
 

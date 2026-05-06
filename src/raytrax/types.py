@@ -223,32 +223,29 @@ class RadialProfiles:
     def with_tapered_density(self, boundary_layer_width: float) -> "RadialProfiles":
         r"""Return a copy with the electron density tapered to zero near the LCFS.
 
-        Applies a cosine taper to :attr:`electron_density` over the outermost
-        ``boundary_layer_width`` fraction of the minor radius, following the
-        approach used by TRAVIS (*plasma_profiles.f90*).  The taper multiplies
+        Applies a cosine taper to `electron_density` over the outermost
+        ``boundary_layer_width`` fraction of the minor radius.  The taper multiplies
         the profile by
 
-        .. math::
+        $$w(\rho) = \frac{1}{2}\left[1 + \cos\!\left(
+            \pi\,\frac{\rho^2 - \rho_1^2}{\rho_{\max}^2 - \rho_1^2}
+        \right)\right], \quad \rho_1 \le \rho \le \rho_{\max},$$
 
-            w(\rho) = \frac{1}{2}\left[1 + \cos\!\left(
-                \pi\,\frac{\rho^2 - \rho_1^2}{\rho_{\max}^2 - \rho_1^2}
-            \right)\right], \quad \rho_1 \le \rho \le \rho_{\max},
+        where $\rho_1 = \rho_{\max} - \text{boundary\_layer\_width}$
+        (in $s = \rho^2$ space).
 
-        where :math:`\rho_1 = \rho_{\max} - \text{boundary\_layer\_width}`
-        (in :math:`s = \rho^2` space).
-
-        Use this whenever :math:`n_e(\rho{=}1) > 0` to avoid a hard
+        Use this whenever $n_e(\rho{=}1) > 0$ to avoid a hard
         discontinuity at the plasma–vacuum interface that would cause spurious
         ray behaviour.
 
         Args:
-            boundary_layer_width: Width of the taper in :math:`\rho` units
+            boundary_layer_width: Width of the taper in $\rho$ units
                 (fraction of the minor radius).  Must satisfy
                 ``0 < boundary_layer_width <= rho_max``.
 
         Returns:
-            A new :class:`RadialProfiles` with tapered :attr:`electron_density`
-            and the same :attr:`rho` and :attr:`electron_temperature`.
+            A new `RadialProfiles` with tapered `electron_density`
+            and the same `rho` and `electron_temperature`.
         """
         rho_max = float(jnp.max(self.rho))
         if rho_max <= 0.0:
