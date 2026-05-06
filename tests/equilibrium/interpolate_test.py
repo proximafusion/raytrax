@@ -767,7 +767,7 @@ def test_ne_interpolator_taper_is_smooth_and_zero_at_lcfs():
     )
     boundary_layer_width = 0.1
     ne_interp = build_electron_density_profile_interpolator(
-        radial_profiles.with_tapered_density(boundary_layer_width)
+        radial_profiles.with_zero_density_at_boundary(boundary_layer_width)
     )
 
     # Deep inside: taper weight == 1, value matches original profile
@@ -822,7 +822,7 @@ def test_ne_interpolator_zero_edge_profile_unaffected_by_taper():
     boundary_layer_width = 0.1
     ne_no_taper = build_electron_density_profile_interpolator(radial_profiles)
     ne_tapered = build_electron_density_profile_interpolator(
-        radial_profiles.with_tapered_density(boundary_layer_width)
+        radial_profiles.with_zero_density_at_boundary(boundary_layer_width)
     )
 
     # Deep interior: well inside the taper start at rho = 1 - 0.1 = 0.9

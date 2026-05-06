@@ -69,10 +69,10 @@ profiles = raytrax.RadialProfiles(
 ```
 
 !!! tip "Profiles with non-zero density at the boundary"
-    If $n_e(\rho{=}1) > 0$, call [`with_tapered_density`][raytrax.types.RadialProfiles.with_tapered_density] on the profiles object before tracing.  This smoothly tapers the density to zero over the outermost 10% of the minor radius and avoids a spurious discontinuity at the plasma-vacuum interface.
+    If $n_e(\rho{=}1) > 0$, call [`with_zero_density_at_boundary`][raytrax.types.RadialProfiles.with_zero_density_at_boundary] on the profiles object before tracing.  This smoothly tapers the density to zero over the outermost 10% of the minor radius and avoids a spurious discontinuity at the plasma-vacuum interface.
 
     ```python
-    profiles_tapered = profiles.with_tapered_density(boundary_layer_width=0.1)
+    profiles_tapered = profiles.with_zero_density_at_boundary(boundary_layer_width=0.1)
     result = raytrax.trace(mag_conf, profiles_tapered, beam)
     ```
 

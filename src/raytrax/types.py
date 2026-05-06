@@ -220,7 +220,9 @@ class RadialProfiles:
     electron_temperature: jt.Float[jax.Array, " nrho"]
     """The electron temperature profile in keV."""
 
-    def with_tapered_density(self, boundary_layer_width: float) -> "RadialProfiles":
+    def with_zero_density_at_boundary(
+        self, boundary_layer_width: float
+    ) -> "RadialProfiles":
         r"""Return a copy with the electron density tapered to zero near the LCFS.
 
         Applies a cosine taper to `electron_density` over the outermost
