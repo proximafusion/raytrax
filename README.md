@@ -100,3 +100,4 @@ The development of Raytrax is a collaboration between [Proxima Fusion](https://w
 ## License
 
 Raytrax is released under the MIT License. See [LICENSE.md](LICENSE.md) for details.
+
