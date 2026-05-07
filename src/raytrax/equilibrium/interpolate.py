@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 import interpax
 import jax
-import jax.core
 import jax.numpy as jnp
 import jaxtyping as jt
 import numpy as np
@@ -421,8 +420,8 @@ def build_electron_density_profile_interpolator(
     Returns:
         An interpax.Interpolator1D that maps rho to electron density.
     """
-    arr = radial_profiles.electron_density[-1]
-    if not isinstance(arr, jax.core.Tracer):
+    try:
+        arr = radial_profiles.electron_density[-1]
         ne_edge = float(arr)
         if ne_edge > _NE_EDGE_WARN_THRESHOLD:
             warnings.warn(
@@ -434,6 +433,8 @@ def build_electron_density_profile_interpolator(
                 UserWarning,
                 stacklevel=2,
             )
+    except (jax.errors.ConcretizationTypeError, TypeError):
+        pass
 
     return interpax.Interpolator1D(
         x=radial_profiles.rho,
