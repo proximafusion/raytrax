@@ -420,17 +420,21 @@ def build_electron_density_profile_interpolator(
     Returns:
         An interpax.Interpolator1D that maps rho to electron density.
     """
-    ne_edge = float(radial_profiles.electron_density[-1])
-    if ne_edge > _NE_EDGE_WARN_THRESHOLD:
-        warnings.warn(
-            f"Electron density at the LCFS (rho=1) is {ne_edge:.3g} \u00d7 10\u00b2\u2070 m\u207b\u00b3, "
-            "which is not zero. The extrapolator hard-clamps ne=0 outside the LCFS, "
-            "creating a discontinuity that can cause spurious ray behaviour. "
-            "Consider using radial_profiles.with_zero_density_at_boundary(0.1) to smoothly "
-            "taper the density to zero over the outermost 10% of the minor radius.",
-            UserWarning,
-            stacklevel=2,
-        )
+    try:
+        arr = radial_profiles.electron_density[-1]
+        ne_edge = float(arr)
+        if ne_edge > _NE_EDGE_WARN_THRESHOLD:
+            warnings.warn(
+                f"Electron density at the LCFS (rho=1) is {ne_edge:.3g} \u00d7 10\u00b2\u2070 m\u207b\u00b3, "
+                "which is not zero. The extrapolator hard-clamps ne=0 outside the LCFS, "
+                "creating a discontinuity that can cause spurious ray behaviour. "
+                "Consider using radial_profiles.with_zero_density_at_boundary(0.1) to smoothly "
+                "taper the density to zero over the outermost 10% of the minor radius.",
+                UserWarning,
+                stacklevel=2,
+            )
+    except (jax.errors.ConcretizationTypeError, TypeError):
+        pass
 
     return interpax.Interpolator1D(
         x=radial_profiles.rho,
