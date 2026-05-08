@@ -846,3 +846,32 @@ def test_ne_interpolator_zero_edge_profile_unaffected_by_taper():
         atol=1e-12,
         err_msg="Tapered ne at rho=1 must stay zero for a zero-edge profile",
     )
+
+
+def test_build_ne_interpolator_is_jit_compatible():
+    """build_electron_density_profile_interpolator must not raise under jax.jit.
+
+    When trace() is called inside jax.jit or jax.grad the arrays in
+    RadialProfiles become JAX tracers.  Calling float() on a tracer raises
+    ConcretizationTypeError.  The edge-density warning must be silently skipped
+    rather than crashing in that situation.
+    """
+    n = 20
+    rho = jnp.linspace(0.0, 1.0, n)
+    # Non-zero at the edge – this is what would have triggered the warning and
+    # previously the crash.
+    ne = jnp.ones(n)
+
+    @jax.jit
+    def build_and_eval(electron_density):
+        profiles = RadialProfiles(
+            rho=rho,
+            electron_density=electron_density,
+            electron_temperature=jnp.ones(n),
+        )
+        interp = build_electron_density_profile_interpolator(profiles)
+        return interp(jnp.array(0.5))
+
+    # Must not raise jax.errors.ConcretizationTypeError
+    result = build_and_eval(ne)
+    assert jnp.isfinite(result)
