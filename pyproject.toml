@@ -19,7 +19,7 @@ dependencies = [
   "jaxtyping",
   "numpy",
   "scipy",
-  "interpax<0.3.14",
+  "interpax<0.3.15",
   "diffrax>=0.7.1",
   "beartype",
   "vmecpp",
