@@ -143,7 +143,9 @@ def test_magnetic_configuration_from_gvec_shape():
     """magnetic_configuration_from_gvec returns arrays with correct shapes."""
     state = _MockGvecState()
     grid = GvecGridResolution(
-        cylindrical=CylindricalGridResolution(n_r=10, n_z=12, n_phi=8, n_rho_profile=20),
+        cylindrical=CylindricalGridResolution(
+            n_r=10, n_z=12, n_phi=8, n_rho_profile=20
+        ),
         n_rho=8,
         n_theta=10,
     )
@@ -163,7 +165,9 @@ def test_magnetic_configuration_from_gvec_rho_range():
     """rho values on the cylindrical grid are in [0, rho_max]."""
     state = _MockGvecState()
     grid = GvecGridResolution(
-        cylindrical=CylindricalGridResolution(n_r=10, n_z=12, n_phi=8, n_rho_profile=20),
+        cylindrical=CylindricalGridResolution(
+            n_r=10, n_z=12, n_phi=8, n_rho_profile=20
+        ),
         n_rho=8,
         n_theta=10,
         rho_max=1.2,
@@ -195,6 +199,7 @@ def test_magnetic_configuration_from_gvec_toroidal_angle_sign():
 def test_missing_pygvec_raises_helpful_error():
     """ImportError for missing pygvec gives a helpful install hint."""
     import sys
+
     del sys.modules["gvec"]
 
     with pytest.raises(ImportError, match="pip install raytrax\\[gvec\\]"):

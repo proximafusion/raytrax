@@ -226,7 +226,7 @@ def magnetic_configuration_from_gvec(
     # ------------------------------------------------------------------
     rho_1d = np.linspace(0.0, rho_max, n_rho)
     theta_1d = np.linspace(0.0, 2 * np.pi, n_theta, endpoint=False)
-    
+
     # GVEC zeta runs opposite to VMEC phi.  The raytrax output grid
     # expects phi in [0, pi/nfp].
     # By stellarator symmetry, we can sample zeta in [0, -pi/nfp] to get
@@ -258,9 +258,7 @@ def magnetic_configuration_from_gvec(
     phi = phi_flat.reshape(shape)
 
     # rphiz_toroidal: shape (n_rho, n_theta, n_phi, 3)
-    rphiz_toroidal = jnp.stack(
-        [jnp.array(R), jnp.array(phi), jnp.array(Z)], axis=-1
-    )
+    rphiz_toroidal = jnp.stack([jnp.array(R), jnp.array(phi), jnp.array(Z)], axis=-1)
 
     # ------------------------------------------------------------------
     # Step 3: Evaluate the magnetic field B = (B_R, B_Z, B_phi) in GVEC
