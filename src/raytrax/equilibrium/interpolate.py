@@ -11,7 +11,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pyvista as pv
@@ -166,6 +166,40 @@ class MagneticConfiguration(SafetensorsMixin):
             is_stellarator_symmetric=not equilibrium.lasym,
             rho_1d=rho_1d,
             dvolume_drho=dv_drho,
+        )
+
+    @classmethod
+    def from_omas(
+        cls,
+        ods: "Any",
+        time_index: int = 0,
+        grid_index: int = 0,
+        magnetic_field_scale: float = 1.0,
+    ) -> "MagneticConfiguration":
+        """Create a MagneticConfiguration from an OMAS equilibrium data structure.
+
+        Requires the optional ``omas`` package::
+
+            pip install raytrax[omas]
+
+        Args:
+            ods: An ``omas.ODS`` object containing the IMAS ``equilibrium`` data.
+            time_index: Time slice index to extract (default: 0).
+            grid_index: Index of the 2D profile grid to use (default: 0).
+            magnetic_field_scale: Uniform scale factor applied to all magnetic
+                field values.
+
+        Returns:
+            A :class:`MagneticConfiguration` ready to be passed to
+            :func:`raytrax.trace`.
+        """
+        from raytrax.equilibrium.omas import magnetic_configuration_from_omas
+
+        return magnetic_configuration_from_omas(
+            ods=ods,
+            time_index=time_index,
+            grid_index=grid_index,
+            magnetic_field_scale=magnetic_field_scale,
         )
 
     def to_pyvista_grid(self) -> pv.StructuredGrid:

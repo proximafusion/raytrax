@@ -49,6 +49,10 @@ docs = [
 plot3d = [
   "pyvista[jupyter]",
 ]
+omas = [
+  "omas",
+]
+
 
 [project.urls]
 Homepage = "https://github.com/proximafusion/raytrax"
