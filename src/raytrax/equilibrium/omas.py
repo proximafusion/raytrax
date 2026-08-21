@@ -50,7 +50,7 @@ def magnetic_configuration_from_omas(
 
     eq = ods["equilibrium"]
     time_slice = eq["time_slice"][time_index]
-    
+
     prof2d = time_slice["profiles_2d"][grid_index]
     prof1d = time_slice["profiles_1d"]
 
@@ -83,7 +83,9 @@ def magnetic_configuration_from_omas(
             return np.array(prof2d[name_new])
         elif name_old in prof2d:
             return np.array(prof2d[name_old])
-        raise ValueError(f"Magnetic field component {name_new} not found in profiles_2d.")
+        raise ValueError(
+            f"Magnetic field component {name_new} not found in profiles_2d."
+        )
 
     BR_2d = get_b("b_field_r", "b_r")
     Bphi_2d = get_b("b_field_tor", "b_tor")
@@ -96,7 +98,9 @@ def magnetic_configuration_from_omas(
             Bphi_2d = Bphi_2d.T
             BZ_2d = BZ_2d.T
         else:
-            raise ValueError(f"Grid shape mismatch: R={n_r}, Z={n_z}, but B field has shape {BR_2d.shape}")
+            raise ValueError(
+                f"Grid shape mismatch: R={n_r}, Z={n_z}, but B field has shape {BR_2d.shape}"
+            )
 
     # 3. Construct 2D rho field mapping
     # Poloidal flux psi on the 2D grid
@@ -107,7 +111,7 @@ def magnetic_configuration_from_omas(
     # 1D profiles map psi to rho (normalized toroidal flux radius)
     psi_1d = np.array(prof1d["psi"])
     rho_1d_prof = np.array(prof1d["rho_tor_norm"])
-    
+
     # Strictly increasing psi is needed for interpolation.
     # Sometimes psi goes from center (negative/min) to edge (zero/max), sometimes opposite.
     # Interp1d requires monotonically increasing x.
@@ -130,7 +134,7 @@ def magnetic_configuration_from_omas(
     vol_1d = np.array(prof1d["volume"])[sort_idx]
     # dV/drho using central differences
     dv_drho = np.gradient(vol_1d, rho_1d_sorted)
-    
+
     # Create an evenly spaced 1D grid for interpolation, as expected by raytrax
     n_rho_profile = len(rho_1d_prof)
     rho_1d_uniform = np.linspace(0.0, 1.0, n_rho_profile)
@@ -145,15 +149,15 @@ def magnetic_configuration_from_omas(
     # 5. Build full 4D arrays for MagneticConfiguration
     # axis 1 is the toroidal angle phi (n_phi=1 for axisymmetric)
     R_mesh, Z_mesh = np.meshgrid(R_1d, Z_1d, indexing="ij")
-    
+
     # Shape: (n_r, 1, n_z)
     R_3d = R_mesh[:, np.newaxis, :]
     Z_3d = Z_mesh[:, np.newaxis, :]
     phi_3d = np.zeros_like(R_3d)
-    
+
     # rphiz: (n_r, 1, n_z, 3)
     rphiz = jnp.stack([R_3d, phi_3d, Z_3d], axis=-1)
-    
+
     # B field: (n_r, 1, n_z, 3)
     BR_3d = BR_2d[:, np.newaxis, :] * magnetic_field_scale
     Bphi_3d = Bphi_2d[:, np.newaxis, :] * magnetic_field_scale

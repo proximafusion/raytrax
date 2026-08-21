@@ -11,7 +11,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pyvista as pv
