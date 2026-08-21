@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Unit tests for the GVEC equilibrium importer.
 
 Since ``pygvec`` is an optional dependency that may not be installed in CI,
@@ -184,7 +185,7 @@ def test_magnetic_configuration_from_gvec_toroidal_angle_sign():
     mag = magnetic_configuration_from_gvec(state, nfp=NFP, grid=grid)
 
     phi_vals = mag.rphiz[..., 1]
-    
+
     # phi should be in [0, pi/nfp]
     phi_max = np.pi / NFP
     assert float(jnp.min(phi_vals)) >= -1e-10
