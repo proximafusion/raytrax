@@ -73,6 +73,11 @@ class GvecGridResolution:
         n_rho: Number of radial (flux-surface) points on the intermediate grid.
             Includes rho=0 (magnetic axis) and rho=rho_max.
         n_theta: Number of poloidal points on the intermediate grid.
+        n_zeta_jacobian: Number of toroidal quadrature points (per field period)
+            used for the :math:`dV/d\\rho` Jacobian integral.  Kept separate from
+            the output grid ``cylindrical.n_phi`` because the two requirements
+            are independent: ``n_phi`` controls ray-tracing resolution while
+            ``n_zeta_jacobian`` controls the accuracy of the volume derivative.
         rho_max: Maximum normalized effective radius to sample. Values slightly
             above 1.0 allow extrapolation just beyond the last closed flux
             surface (LCFS), consistent with the VMEC importer.
@@ -83,6 +88,7 @@ class GvecGridResolution:
     )
     n_rho: int = 40
     n_theta: int = 45
+    n_zeta_jacobian: int = 30
     rho_max: float = 1.2
 
 
@@ -260,6 +266,10 @@ def magnetic_configuration_from_gvec(
     # Step 3: Evaluate the magnetic field B = (B_R, B_Z, B_phi) in GVEC
     # convention and convert to cylindrical (B_R, B_phi, B_Z).
     # GVEC returns B components in (R, Z, phi) order; we reorder.
+    # TODO(dush): Verify with GVEC documentation if B1, B2, B3 from state.evaluate()
+    # are already Cartesian/Cylindrical (B_R, B_Z, B_phi) or if they are
+    # contravariant flux components (B^rho, B^theta, B^zeta). If they are flux
+    # components, they MUST be transformed via the Jacobian to cylindrical!
     # ------------------------------------------------------------------
     BR_flat = np.array(state.evaluate("B1", rho_flat, theta_flat, zeta_flat))
     BZ_flat = np.array(state.evaluate("B2", rho_flat, theta_flat, zeta_flat))
@@ -330,7 +340,7 @@ def magnetic_configuration_from_gvec(
         state=state,
         rho_1d=rho_1d_profile,
         n_theta=n_theta,
-        n_zeta=n_phi,
+        n_zeta=grid.n_zeta_jacobian,
         nfp=nfp,
     )
 
