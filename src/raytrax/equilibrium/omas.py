@@ -57,8 +57,8 @@ def magnetic_configuration_from_omas(
     # 1. Extract the 1D R and Z grid coordinates.
     # IMAS allows grid.dim1 and grid.dim2 for structured rectangular grids.
     if "grid" in prof2d and "dim1" in prof2d["grid"] and "dim2" in prof2d["grid"]:
-        R_1d = np.array(prof2d["grid.dim1"])
-        Z_1d = np.array(prof2d["grid.dim2"])
+        R_1d = np.array(prof2d["grid"]["dim1"])
+        Z_1d = np.array(prof2d["grid"]["dim2"])
     elif "r" in prof2d and "z" in prof2d:
         # Fallback to r/z fields
         R_grid = np.array(prof2d["r"])
