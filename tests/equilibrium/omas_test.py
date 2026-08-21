@@ -1,9 +1,7 @@
 """Unit tests for the OMAS equilibrium importer."""
 
 import jax
-import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from raytrax.equilibrium.omas import magnetic_configuration_from_omas
 

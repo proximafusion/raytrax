@@ -16,7 +16,7 @@ import numpy as np
 from raytrax.equilibrium.interpolate import MagneticConfiguration
 
 if TYPE_CHECKING:
-    import scipy.interpolate
+    pass
 
 
 def magnetic_configuration_from_omas(
