@@ -10,7 +10,7 @@
 
 Raytrax simulates Electron Cyclotron Resonance Heating (ECRH) of magnetic confinement fusion plasmas. Powered by [JAX](https://docs.jax.dev), it features JIT-compiled ray tracing and automatic differentiation — making it well-suited for gradient-based beam optimization in fusion plant design.
 
-> **Note:** Raytrax is in early development. Expect API changes and incomplete validation. For details [see the docs](https://proximafusion.github.io/raytrax/limitations).
+> **Note:** Raytrax is under active development, and the API may change before version 1.0. For current limitations [see the docs](https://proximafusion.github.io/raytrax/limitations).
 
 ## Usage
 

@@ -23,4 +23,5 @@ The following is a list of current limitations of Raytrax.
 
 ## Validation
 
-- Raytrax has not been fully validated against existing ray tracing codes or experimental data yet.
+- A comparison with TRAVIS for W7-X will be presented in a forthcoming publication.
+- Comparisons with experimental data have not been carried out.
