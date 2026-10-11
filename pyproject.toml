@@ -51,6 +51,9 @@ docs = [
 plot3d = [
   "pyvista[jupyter]",
 ]
+gvec = [
+  "pygvec",
+]
 
 [project.urls]
 Homepage = "https://github.com/proximafusion/raytrax"
