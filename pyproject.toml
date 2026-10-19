@@ -43,7 +43,7 @@ test = [
   "pre-commit",
 ]
 docs = [
-  "zensical==0.0.69",
+  "zensical==0.0.70",
   "mkdocstrings-python",
   "mkdocs-gallery>=0.10.4,<0.11",
   "pyvista[jupyter]",
