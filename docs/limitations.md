@@ -8,7 +8,9 @@ The following is a list of current limitations of Raytrax.
 
 ## Input formats
 
-- To load MHD equilibria, only [VMEC++](https://proximafusion.github.io/vmecpp/) is supported so far. Note that VMEC++ is interoperable with SIMSOPT and can read legacy VMEC output files as well.
+- MHD equilibria can be loaded from [VMEC++](https://proximafusion.github.io/vmecpp/) and [GVEC](https://gvec.readthedocs.io). Note that VMEC++ is interoperable with SIMSOPT and can read legacy VMEC output files as well.
+- Only stellarator-symmetric equilibria are supported.
+- GVEC equilibria must be periodic about the $Z$-axis, and every half-plane $\phi = \text{const}$ must cut each flux surface in a single closed curve. This excludes figure-8 and knotted geometries.
 
 ## Beam representation
 
