@@ -38,7 +38,7 @@ Raytrax requires three inputs:
 2. Radial plasma profiles
 3. Beam settings.
 
-The **[`MagneticConfiguration`][raytrax.equilibrium.interpolate.MagneticConfiguration]** is a grid in cylindrical coordinates holding the values of the magnetic field $\vec{B}$, the effective minor radius $\rho$, and some other geometric quantities. Raytrax can compute this configuration from a [VMEC++](https://proximafusion.github.io/vmecpp/) MHD equilibrium.
+The **[`MagneticConfiguration`][raytrax.equilibrium.interpolate.MagneticConfiguration]** is a grid in cylindrical coordinates holding the values of the magnetic field $\vec{B}$, the effective minor radius $\rho$, and some other geometric quantities. Raytrax can compute this configuration from a [VMEC++](https://proximafusion.github.io/vmecpp/) or [GVEC](https://gvec.readthedocs.io) MHD equilibrium (see [Equilibrium](equilibrium.md)).
 
 An example where an equilibrium is loaded from a NetCDF file:
 

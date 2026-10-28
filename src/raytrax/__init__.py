@@ -12,6 +12,7 @@ if not getattr(jax.config, "jax_enable_x64", False):
     )
 
 from .api import trace as trace
+from .equilibrium.gvec import GvecGridResolution as GvecGridResolution
 from .equilibrium.interpolate import (
     CylindricalGridResolution as CylindricalGridResolution,
 )
@@ -25,6 +26,7 @@ from .types import TracerSettings as TracerSettings
 __all__ = [
     "Beam",
     "CylindricalGridResolution",
+    "GvecGridResolution",
     "Interpolators",
     "MagneticConfiguration",
     "RadialProfiles",

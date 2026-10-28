@@ -13,7 +13,10 @@ from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import gvec
     import pyvista as pv
+
+    from raytrax.equilibrium.gvec import GvecGridResolution
 
 import interpax
 import jax
@@ -167,6 +170,68 @@ class MagneticConfiguration(SafetensorsMixin):
             dvolume_drho=dv_drho,
         )
 
+    @classmethod
+    def from_gvec(
+        cls,
+        state: gvec.State,
+        magnetic_field_scale: float = 1.0,
+        grid: GvecGridResolution | None = None,
+    ) -> MagneticConfiguration:
+        """Create a MagneticConfiguration from a GVEC State object.
+
+        Builds the same $(R, \\phi, Z)$ cylindrical grid representation used by
+        :meth:`from_vmec_wout`, covering the fundamental domain
+        $\\phi \\in [0, \\pi/\\text{nfp}]$. Any GVEC hmap is accepted as long as
+        the equilibrium is periodic about the $Z$-axis, stellarator symmetric,
+        and every half-plane $\\phi = \\text{const}$ cuts each flux surface in a
+        single closed curve (see :mod:`raytrax.equilibrium.gvec`); otherwise
+        ``NotImplementedError`` is raised.
+
+        Args:
+            state: A ``gvec.State`` loaded with ``gvec.find_state``.
+            magnetic_field_scale: Factor to multiply all magnetic field values by.
+            grid: Grid resolution settings. Defaults to
+                :class:`GvecGridResolution` with its default values.
+
+        Returns:
+            A MagneticConfiguration containing the interpolated equilibrium data.
+        """
+        from raytrax.equilibrium.gvec import (
+            GvecGridResolution,
+            cylindrical_grid_for_gvec_equilibrium,
+            dvolume_drho_gvec,
+        )
+
+        if grid is None:
+            grid = GvecGridResolution()
+
+        interpolated_array = cylindrical_grid_for_gvec_equilibrium(
+            state=state,
+            n_rho=grid.n_rho,
+            n_theta=grid.n_theta,
+            n_zeta=grid.n_zeta,
+            n_r=grid.cylindrical.n_r,
+            n_z=grid.cylindrical.n_z,
+            n_phi=grid.cylindrical.n_phi,
+        )
+
+        rphiz = interpolated_array[..., :3]
+        rho = interpolated_array[..., 3]
+        magnetic_field = interpolated_array[..., 4:] * magnetic_field_scale
+
+        rho_1d = jnp.linspace(0, 1, grid.cylindrical.n_rho_profile)
+        dv_drho = dvolume_drho_gvec(state, np.array(rho_1d))
+
+        return cls(
+            rphiz=rphiz,
+            magnetic_field=magnetic_field,
+            rho=rho,
+            nfp=state.nfp,
+            is_stellarator_symmetric=True,
+            rho_1d=rho_1d,
+            dvolume_drho=dv_drho,
+        )
+
     def to_pyvista_grid(self) -> pv.StructuredGrid:
         """Convert to a PyVista StructuredGrid in Cartesian coordinates.
 
@@ -279,21 +344,55 @@ def cylindrical_grid_for_equilibrium(
         equilibrium,
         rho_theta_phi,
     )
-    # Convert Cartesian B to cylindrical (B_R, B_phi, B_Z) for storage
-    phi = rphiz[..., 1]
+    Bcyl = cartesian_to_cylindrical_vector(Bxyz, rphiz[..., 1])
+    value_toroidal = jnp.concatenate([rho_theta_phi[..., :1], Bcyl], axis=-1)
+    return cylindrical_grid_from_toroidal_samples(
+        rphiz_toroidal=rphiz, value_toroidal=value_toroidal, n_r=n_r, n_z=n_z
+    )
+
+
+def cartesian_to_cylindrical_vector(
+    vxyz: jt.Float[jax.Array, "*batch 3"], phi: jt.Float[jax.Array, "*batch"]
+) -> jt.Float[jax.Array, "*batch 3"]:
+    """Rotate Cartesian vector components $(v_x, v_y, v_z)$ to $(v_R, v_\\phi, v_Z)$."""
     cp, sp = jnp.cos(phi), jnp.sin(phi)
-    Bcyl = jnp.stack(
+    return jnp.stack(
         [
-            Bxyz[..., 0] * cp + Bxyz[..., 1] * sp,
-            -Bxyz[..., 0] * sp + Bxyz[..., 1] * cp,
-            Bxyz[..., 2],
+            vxyz[..., 0] * cp + vxyz[..., 1] * sp,
+            -vxyz[..., 0] * sp + vxyz[..., 1] * cp,
+            vxyz[..., 2],
         ],
         axis=-1,
     )
-    rmin = jnp.min(rphiz[..., 0])
-    rmax = jnp.max(rphiz[..., 0])
-    zmin = jnp.min(rphiz[..., 2])
-    zmax = jnp.max(rphiz[..., 2])
+
+
+@jt.jaxtyped(typechecker=typechecker)
+def cylindrical_grid_from_toroidal_samples(
+    rphiz_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi rphiz=3"],
+    value_toroidal: jt.Float[jax.Array, "n_rho n_theta n_phi n_values"],
+    n_r: int,
+    n_z: int,
+) -> jt.Float[jax.Array, "n_r n_phi n_z n_out"]:
+    """Interpolate samples given on constant-$\\phi$ cross-sections onto the cylindrical grid.
+
+    Every toroidal index of the input must be a cross-section at a single angle
+    $\\phi$; the output grid uses the same $\\phi$ planes and spans the
+    $(R, Z)$ bounding box of all samples.
+
+    Args:
+        rphiz_toroidal: $(R, \\phi, Z)$ of the samples.
+        value_toroidal: Values at the samples.
+        n_r: Number of grid points along $R$.
+        n_z: Number of grid points along $Z$.
+
+    Returns:
+        Array of shape (n_r, n_phi, n_z, 3 + n_values) holding
+        $(R, \\phi, Z)$ followed by the interpolated values.
+    """
+    rmin = jnp.min(rphiz_toroidal[..., 0])
+    rmax = jnp.max(rphiz_toroidal[..., 0])
+    zmin = jnp.min(rphiz_toroidal[..., 2])
+    zmax = jnp.max(rphiz_toroidal[..., 2])
     rz_cylindrical = jnp.stack(
         jnp.meshgrid(
             jnp.linspace(rmin, rmax, n_r),
@@ -302,23 +401,21 @@ def cylindrical_grid_for_equilibrium(
         ),
         axis=-1,
     )
-    value_toroidal = jnp.concatenate([rho_theta_phi[..., :1], Bcyl], axis=-1)
-    rhoBxyz_cylindrical = interpolate_toroidal_to_cylindrical_grid(
-        rphiz_toroidal=rphiz,
+    value_cylindrical = interpolate_toroidal_to_cylindrical_grid(
+        rphiz_toroidal=rphiz_toroidal,
         rz_cylindrical=rz_cylindrical,
         value_toroidal=value_toroidal,
     )
     rphiz_cylindrical = jnp.stack(
         jnp.meshgrid(
             jnp.linspace(rmin, rmax, n_r),
-            jnp.linspace(0, phi_max, n_phi),
+            rphiz_toroidal[0, 0, :, 1],
             jnp.linspace(zmin, zmax, n_z),
             indexing="ij",
         ),
         axis=-1,
     )
-    result = jnp.concatenate([rphiz_cylindrical, rhoBxyz_cylindrical], axis=-1)
-    return result
+    return jnp.concatenate([rphiz_cylindrical, value_cylindrical], axis=-1)
 
 
 def build_magnetic_field_interpolator(
