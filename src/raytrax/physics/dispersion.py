@@ -71,7 +71,18 @@ def _dispersion_appleton_hartee(
 
     G = jnp.sqrt(D)
     sign = -1 if mode == "X" else +1
-    N_squared = 1 - a / (b + sign * G)
+    # N^2 = 1 - a / (b + sign * G). Where b and sign * G have opposite signs, the
+    # denominator cancels (O-mode at X = 1 gives 0 / 0). There, use the equivalent
+    # N^2 = 1 - X (b - sign * G) / (2 c), from b^2 - G^2 = 4 (1 - X) c.
+    c = X1 - Y**2 * sin2theta - X1 * Y**2 * cos2theta
+    cancels = sign * b < 0
+    direct_denominator = jnp.where(cancels, 1.0, b + sign * G)
+    conjugate_denominator = jnp.where(cancels, 2 * c, 1.0)
+    N_squared = 1 - jnp.where(
+        cancels,
+        X * (b - sign * G) / conjugate_denominator,
+        a / direct_denominator,
+    )
     return N_squared
 
 
