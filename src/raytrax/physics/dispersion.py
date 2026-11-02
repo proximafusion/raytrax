@@ -71,10 +71,13 @@ def _dispersion_appleton_hartee(
 
     G = jnp.sqrt(D)
     sign = -1 if mode == "X" else +1
-c = X1 - Y**2 * sin2theta - X1 * Y**2 * cos2theta
-d = b + sign * G
-
-N_squared = 1 - (a * d + 2 * X * c * (b - sign * G)) / (d**2 + 4 * c**2)
+    # N^2 = 1 - a / d = 1 - X (b - sign * G) / (2 c) with d = b + sign * G, using
+    # b^2 - G^2 = 4 (1 - X) c. The first form cancels where d -> 0 (O-mode at X = 1),
+    # the second where c -> 0. Blending them with weights d^2 and (2 c)^2 is exact and
+    # suppresses whichever one cancels.
+    c = X1 - Y**2 * sin2theta - X1 * Y**2 * cos2theta
+    d = b + sign * G
+    N_squared = 1 - (a * d + 2 * X * c * (b - sign * G)) / (d**2 + 4 * c**2)
     return N_squared
 
 
