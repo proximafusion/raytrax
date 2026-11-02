@@ -470,11 +470,10 @@ def resonance_integrand(
         + refractive_index_para * parallel_momentum
     )
     # For |N_∥| > 1 the resonance curve is a hyperbola whose second branch has γ < 1,
-    # where exp(-μγ) overflows and 0·inf = NaN. Evaluate such nodes at γ = 1, where
-    # Dql is zero and everything is finite, so that neither the value nor the gradient
-    # picks up the NaN, and drop them.
-    physical = lorentz_factor >= 1
-    lorentz_factor = jnp.where(physical, lorentz_factor, 1.0)
+    # where exp(-μγ) overflows and 0·inf = NaN. Clamp such nodes to γ = 1, where
+    # u_⊥² = 0 makes Dql vanish and everything stays finite, so that neither the value
+    # nor the gradient picks up the NaN.
+    lorentz_factor = jnp.maximum(lorentz_factor, 1.0)
     Dql = quasilinear_diffusion_coefficient(
         harmonic_index=harmonic_index,
         cyclotron_frequency=cyclotron_frequency,
@@ -490,7 +489,7 @@ def resonance_integrand(
     # Fidone operator: Lf = df/dw + N_par * df/dq_par|_w
     # For an isotropic Maxwellian f(gamma), df/dq_par|_w = 0 (energy is constant),
     # so Lf = df/dgamma.
-    return jnp.where(physical, Dql * df_dgamma, 0.0)
+    return Dql * df_dgamma
 
 
 def quasilinear_diffusion_coefficient(
