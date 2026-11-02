@@ -592,6 +592,34 @@ def test_resonance_integral_matches_quadrature_over_whole_circle(
     )
 
 
+def test_absorption_coefficient_finite_just_beyond_light_line():
+    """alpha and its gradient stay finite for |N_par| slightly above 1.
+
+    The resonance curve is then a hyperbola with a γ < 1 branch, where the
+    distribution function overflows. State from a W7-X ray (|N_par| = 1.0002).
+    """
+    magnetic_field = jnp.array(
+        [2.3909145305137187, 0.9229867114268557, -0.2851098981994346]
+    )
+
+    def alpha(refractive_index):
+        return absorption.absorption_coefficient(
+            refractive_index=refractive_index,
+            magnetic_field=magnetic_field,
+            electron_density_1e20_per_m3=0.048099218993032725,
+            electron_temperature_keV=1.1976345025670283,
+            frequency=56.28462623497297e9,
+            mode="X",
+        )
+
+    refractive_index = jnp.array(
+        [-0.8367066945769582, -0.726146078756551, -0.32229750243996647]
+    )
+    value, grad = jax.jit(jax.value_and_grad(alpha))(refractive_index)
+    assert np.isfinite(float(value))
+    assert np.all(np.isfinite(np.asarray(grad)))
+
+
 @pytest.mark.parametrize("harmonic", [1, 2, 3, 4])
 def test_quasilinear_diffusion_matches_bessel_form(harmonic):
     """The polynomial Dql equals u_perp^2 |Pi . e|^2 with Pi built from scipy's J_{-n}(z).
