@@ -620,6 +620,98 @@ def test_absorption_coefficient_finite_just_beyond_light_line():
     assert np.all(np.isfinite(np.asarray(grad)))
 
 
+@pytest.mark.parametrize(
+    "n_para", [-2.0, -1.001, -1.0, -0.999999, 0.999999, 1.0, 1.001, 2.0]
+)
+@pytest.mark.parametrize("nY", [0.95, 1.05])
+@pytest.mark.parametrize("harmonic, temperature", [(1, 0.2), (2, 2.0), (3, 8.0)])
+def test_resonance_integral_across_light_line(n_para, nY, harmonic, temperature):
+    """Compare conic bounds and integrand against an independent SciPy reference.
+
+    Solve for gamma directly and use ordinary Bessel functions, without calling
+    the production resonance bounds, integrand, or distribution function.
+    """
+    thermal_velocity = quantities.normalized_electron_thermal_velocity(temperature)
+    n_perp = 0.8
+    e = np.array([0.6, 0.7j, 0.3]) / np.sqrt(0.94)
+    args = dict(
+        harmonic_index=harmonic,
+        cyclotron_frequency=nY * _FREQ / harmonic,
+        frequency=_FREQ,
+        refractive_index_para=n_para,
+        refractive_index_perp=n_perp,
+        polarization_vector=jnp.asarray(e),
+        thermal_velocity=thermal_velocity,
+    )
+    mu = 2 / float(thermal_velocity) ** 2
+    # Solve u_perp^2 = gamma^2 - (gamma - nY)^2 / N_parallel^2 - 1 = 0.
+    roots = np.sort(
+        np.roots([1 - 1 / n_para**2, 2 * nY / n_para**2, -1 - nY**2 / n_para**2])
+    )
+    if abs(n_para) < 1:
+        gamma_min, gamma_max = roots
+    else:
+        gamma_min, gamma_max = roots[-1], np.inf
+
+    def reference_integrand(t):
+        # Resolve the cold peak using t = mu * (gamma - gamma_min).
+        gamma = gamma_min + t / mu
+        u_para = (gamma - nY) / n_para
+        u_perp = np.sqrt(max(0.0, gamma**2 - u_para**2 - 1))
+        b = n_perp * harmonic * u_perp / nY
+        js = scipy.special.jv(harmonic, b)
+        pi_s = np.array(
+            [
+                nY / n_perp * js,
+                -1j * u_perp * scipy.special.jvp(harmonic, b),
+                u_para * js,
+            ]
+        )
+        df_dgamma = (
+            -(mu**2)
+            * np.exp(-mu * (gamma - 1))
+            / (4 * np.pi * scipy.special.kve(2, mu))
+        )
+        return abs(e @ pi_s) ** 2 * df_dgamma / (abs(n_para) * mu)
+
+    # 120 decay lengths makes the reference tail negligible; finite ellipses
+    # end earlier. This window is independent of the production quadrature.
+    reference, _ = quad(
+        reference_integrand,
+        0,
+        min(120.0, mu * (gamma_max - gamma_min)),
+        epsabs=0,
+        epsrel=1e-12,
+    )
+    assert reference < 0  # df/dgamma < 0; the absorption is nonzero.
+    np.testing.assert_allclose(
+        absorption.compute_resonance_integral(**args), reference, rtol=1e-10, atol=0
+    )
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_resonance_integral_differentiable_across_light_line(sign):
+    """Absorption and its derivative remain finite as the conic changes shape."""
+
+    def integral(n_para):
+        return absorption.compute_resonance_integral(
+            harmonic_index=1,
+            cyclotron_frequency=1.05 * _FREQ,
+            frequency=_FREQ,
+            refractive_index_para=n_para,
+            refractive_index_perp=0.8,
+            polarization_vector=jnp.array([0.6, 0.7j, 0.3]) / np.sqrt(0.94),
+            thermal_velocity=quantities.normalized_electron_thermal_velocity(2.0),
+        )
+
+    value, derivative = jax.jit(jax.value_and_grad(integral))(float(sign))
+    assert float(value) < 0
+    assert np.isfinite(float(derivative))
+    eps = 1e-5
+    finite_difference = (integral(sign + eps) - integral(sign - eps)) / (2 * eps)
+    np.testing.assert_allclose(derivative, finite_difference, rtol=1e-6)
+
+
 @pytest.mark.parametrize("harmonic", [1, 2, 3, 4])
 def test_quasilinear_diffusion_matches_bessel_form(harmonic):
     """The polynomial Dql equals u_perp^2 |Pi . e|^2 with Pi built from scipy's J_{-n}(z).

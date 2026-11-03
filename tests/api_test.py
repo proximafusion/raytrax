@@ -1,6 +1,7 @@
 """Tests for the raytrax.api module."""
 
 import functools
+from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -674,3 +675,53 @@ def test_bin_power_large_bucket_profile_matches_trimmed():
     # Total power and per-bin profile must match (latter catches spline boundary artifacts).
     np.testing.assert_allclose(total_bucketed, total_trimmed, rtol=0.01)
     np.testing.assert_allclose(result_bucketed, result_trimmed, rtol=0.05, atol=1e-6)
+
+
+def test_x1_ray_absorbs_after_crossing_parallel_light_line(w7x_magnetic_configuration):
+    """Step-2 validation sample 928 must absorb before approaching a cold resonance.
+
+    Previously absorption vanished at |N_parallel| = 1, leaving the ray to
+    approach divergent N and exhaust its step budget. Scale the native W7-X
+    field to approximately 2.5 T, as in the validation scan.
+    """
+    configuration = replace(
+        w7x_magnetic_configuration,
+        magnetic_field=w7x_magnetic_configuration.magnetic_field * 0.982442,
+    )
+    rho = jnp.linspace(0.0, 1.0, 501)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.2529599084569189
+        * (
+            0.032558900989367645
+            + (1 - 0.032558900989367645)
+            * (1 - rho**3.8262163882617397) ** 3.0092203020039183
+        ),
+        electron_temperature=8.219955542614228
+        * (
+            0.02921659320420252
+            + (1 - 0.02921659320420252)
+            * (1 - rho**2.478202073624697) ** 3.1351784534530545
+        ),
+    )
+    beam = Beam(
+        position=jnp.array(
+            [6.2912875965327215, 0.7658132158020339, 0.5523136511803072]
+        ),
+        direction=jnp.array(
+            [-0.5910383845967915, 0.8017814550004639, -0.08843147827868825]
+        ),
+        frequency=62.951748777242386e9,
+        mode="X",
+        power=1e6,
+    )
+    result = trace(configuration, profiles, beam)
+    bp = result.beam_profile
+    n_parallel = jnp.sum(
+        bp.refractive_index * bp.magnetic_field, axis=1
+    ) / jnp.linalg.norm(bp.magnetic_field, axis=1)
+    assert jnp.any(jnp.abs(n_parallel) > 1)
+    assert not result.incomplete
+    assert len(bp.arc_length) < 200
+    np.testing.assert_allclose(result.optical_depth, np.log(1000), atol=1e-5, rtol=0)
+    np.testing.assert_allclose(bp.arc_length[-1], 1.14, atol=0.002, rtol=0)
