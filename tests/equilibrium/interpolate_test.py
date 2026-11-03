@@ -595,6 +595,63 @@ def test_stellarator_symmetry_in_interpolators(w7x_wout):
     )
 
 
+_SMALL_W7X_GRID = VmecGridResolution(
+    cylindrical=CylindricalGridResolution(n_r=20, n_z=21, n_phi=6, n_rho_profile=50),
+    n_rho=20,
+    n_theta=32,
+)
+
+
+def test_cylindrical_grid_is_symmetric_in_z(w7x_wout):
+    """The Z nodes are symmetric about Z = 0, as stellarator symmetry needs."""
+    mc = MagneticConfiguration.from_vmec_wout(w7x_wout, grid=_SMALL_W7X_GRID)
+    z = np.asarray(mc.rphiz[0, 0, :, 2])
+    np.testing.assert_allclose(z, -z[::-1], rtol=0, atol=1e-14)
+
+
+def test_rho_and_B_continuous_across_symmetry_planes(w7x_wout):
+    """rho and B do not jump where phi crosses 0 or pi / nfp.
+
+    There the solver switches from querying the grid at (phi, Z) to querying it at
+    the mirror point (-phi, -Z), so both must interpolate to the same value.
+    """
+    from raytrax.tracer.buffers import Interpolators
+    from raytrax.tracer.solver import _eval_magnetic_field, _eval_rho
+
+    mc = MagneticConfiguration.from_vmec_wout(w7x_wout, grid=_SMALL_W7X_GRID)
+    interpolators = Interpolators(
+        magnetic_field=build_magnetic_field_interpolator(mc),
+        rho=build_rho_interpolator(mc),
+        electron_density=build_electron_density_profile_interpolator(
+            _DUMMY_RADIAL_PROFILES
+        ),
+        electron_temperature=build_electron_temperature_profile_interpolator(
+            _DUMMY_RADIAL_PROFILES
+        ),
+        is_axisymmetric=False,
+    )
+    nfp = w7x_wout.nfp
+
+    def eval_both(r, phi, z):
+        position = jnp.array([r * jnp.cos(phi), r * jnp.sin(phi), z])
+        return (
+            _eval_rho(position, interpolators, nfp),
+            _eval_magnetic_field(position, interpolators, nfp),
+        )
+
+    eps = 1e-9
+    # Off the midplane, where a Z grid that is not symmetric makes the mirror
+    # point fall elsewhere in its cell.
+    for phi_plane, r_values in ((0.0, (5.6, 6.0)), (jnp.pi / nfp, (5.0, 5.4))):
+        for r in r_values:
+            for z in (-0.3, 0.2, 0.45):
+                rho_minus, b_minus = eval_both(r, phi_plane - eps, z)
+                rho_plus, b_plus = eval_both(r, phi_plane + eps, z)
+                assert np.isfinite(rho_minus) and rho_minus < 1.2
+                np.testing.assert_allclose(rho_plus, rho_minus, rtol=0, atol=1e-7)
+                np.testing.assert_allclose(b_plus, b_minus, rtol=0, atol=1e-7)
+
+
 def test_extrapolation_in_cylindrical_grid(w7x_wout):
     """Test that the cylindrical grid properly handles extrapolation beyond LCMS."""
     from raytrax.equilibrium.interpolate import (

@@ -289,7 +289,11 @@ def cylindrical_grid_for_equilibrium(
     )
     rphiz = evaluate_rphiz_on_toroidal_grid(equilibrium, rho_theta_phi)
     r_grid = jnp.linspace(rphiz[..., 0].min(), rphiz[..., 0].max(), n_r)
-    z_grid = jnp.linspace(rphiz[..., 2].min(), rphiz[..., 2].max(), n_z)
+    # Symmetric about Z = 0, so that a point and its stellarator-symmetric mirror
+    # (phi, Z) -> (-phi, -Z) interpolate from mirrored nodes and agree; otherwise rho
+    # and B jump on the planes phi = 0 and phi = pi / nfp.
+    z_max = jnp.abs(rphiz[..., 2]).max()
+    z_grid = jnp.linspace(-z_max, z_max, n_z)
     rphiz_cylindrical = jnp.stack(
         jnp.meshgrid(r_grid, phis, z_grid, indexing="ij"), axis=-1
     )
