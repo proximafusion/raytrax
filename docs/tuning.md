@@ -6,7 +6,7 @@ icon: lucide/settings-2
 
 ## Solver Settings
 
-The ODE solver used for ray tracing has five tunable parameters, exposed via [`TracerSettings`][raytrax.types.TracerSettings]. The defaults are chosen to work well for typical ECRH scenarios in metre-scale devices:
+The ODE solver used for ray tracing has six tunable parameters, exposed via [`TracerSettings`][raytrax.types.TracerSettings]. The defaults are chosen to work well for typical ECRH scenarios in metre-scale devices:
 
 ```python
 import raytrax
@@ -16,19 +16,22 @@ settings = raytrax.TracerSettings(
     absolute_tolerance=1e-6,  # PID controller atol
     max_step_size=0.05,  # metres
     max_arc_length=20.0,  # metres
+    dispersion_error_weight=30.0,  # weight of the change of H in the step error
     max_steps=4096,  # step budget, sizes the output buffers
 )
 
 result = raytrax.trace(mag_conf, profiles, beam, settings=settings)
 ```
 
-The four float fields are ordinary JAX values (not static compile-time constants), so **changing them does not trigger a recompilation**. `max_steps` is the exception: it sizes the padded output buffers, so changing it does trigger a recompilation (see below).
+The five float fields are ordinary JAX values (not static compile-time constants), so **changing them does not trigger a recompilation**. `max_steps` is the exception: it sizes the padded output buffers, so changing it does trigger a recompilation (see below).
 
 ### When to Adjust the Settings
 
 **`max_step_size`** is the most impactful parameter. The adaptive controller ([`Bosh3`](https://docs.kidger.site/diffrax/api/solvers/ode_solvers/#diffrax.Bosh3) + a PI [`PIDController`](https://docs.kidger.site/diffrax/api/stepsize_controller/#diffrax.PIDController)) will take steps smaller than this when needed, but never larger. Reducing it forces finer integration near caustics or in steep-gradient regions — at the cost of more steps. In vacuum the error estimate is zero, so this cap is also what keeps the solver from stepping over the plasma.
 
 **`relative_tolerance` / `absolute_tolerance`** control the error estimate the PID controller tries to satisfy per step. Tightening them (e.g. `rtol=1e-6`) improves accuracy but increases the number of steps. The defaults are sufficient for power deposition profiles; gradient-based optimisation may benefit from tighter tolerances.
+
+**`dispersion_error_weight`** adds the change of the Hamiltonian to the step-size error estimate, helping detect steps that skip the thin edge-density ramp (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). Larger values tighten this conservation check, usually requiring more steps. Zero disables the extra error term.
 
 **`max_arc_length`** is a safety cutoff. Rays that haven't terminated (by leaving the plasma or being absorbed) are stopped at this arc length. 20 m is generous for any current fusion device; you would only need to lower it to speed up debugging of misconfigured inputs, or raise it for very large devices.
 

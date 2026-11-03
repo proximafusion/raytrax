@@ -198,8 +198,44 @@ def test_ray_stays_on_dispersion_surface_with_finite_edge_density(
     in_plasma = ne > 0.1
     assert in_plasma.sum() > 5
     h = np.sum(n_vec**2, axis=1) - np.asarray(n2_dispersion)
-    # Residuals near the plasma edge are relaxed over a few cm.
-    np.testing.assert_array_less(np.abs(h[in_plasma]), 3e-3)
+    # The step-size control rejects steps that jump over the density ramp.
+    np.testing.assert_array_less(np.abs(h[in_plasma]), 1e-3)
+
+
+def test_finite_edge_density_matches_converged_trace(tokamak_magnetic_configuration):
+    """At default settings, a ray entering a plasma with ne(rho=1) > 0 matches a
+    converged trace, and R N_phi, conserved in an axisymmetric field, stays constant.
+    """
+    rho = jnp.linspace(0, 1, 40)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.4 * (1 - rho**2) + 0.2,
+        electron_temperature=3.0 * (1 - rho**2) + 0.1,
+    )
+    direction = jnp.array([-1.0, 0.3, 0.2])
+    beam = Beam(
+        position=jnp.array([3.0 + 1.3, 0.0, 0.0]),
+        direction=direction / jnp.linalg.norm(direction),
+        frequency=140e9,
+        mode="O",
+        power=1e6,
+    )
+    result = trace(tokamak_magnetic_configuration, profiles, beam)
+    converged = trace(
+        tokamak_magnetic_configuration,
+        profiles,
+        beam,
+        settings=TracerSettings(
+            relative_tolerance=1e-7, absolute_tolerance=1e-9, max_step_size=0.005
+        ),
+    )
+    assert not result.incomplete and not converged.incomplete
+    np.testing.assert_allclose(result.optical_depth, converged.optical_depth, rtol=5e-3)
+
+    position = np.asarray(result.beam_profile.position)
+    n_vec = np.asarray(result.beam_profile.refractive_index)
+    r_n_phi = position[:, 0] * n_vec[:, 1] - position[:, 1] * n_vec[:, 0]
+    np.testing.assert_allclose(r_n_phi, r_n_phi[0], rtol=0, atol=1e-4)
 
 
 def _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration):

@@ -1,11 +1,13 @@
 """JIT-compiled ray tracing ODE solver: integrates position, refractive index, and optical depth via diffrax."""
 
+from collections.abc import Callable
 from typing import NamedTuple, cast
 
 import diffrax
 import jax
 import jax.numpy as jnp
 import jaxtyping as jt
+import numpy as np
 import optimistix as optx
 
 from raytrax.physics import absorption, hamiltonian
@@ -157,7 +159,7 @@ def _right_hand_side(
     ``(setting, interpolators, nfp, tracer_settings)`` where ``interpolators`` is an
     :class:`Interpolators` pytree.
     """
-    setting, interpolators, nfp, tracer_settings = args
+    setting, interpolators, nfp, _ = args
 
     state = _y_to_state(y, s)
 
@@ -169,7 +171,7 @@ def _right_hand_side(
 
     # Compute H and both gradients in a single pass,
     # reusing B-field, rho, and ne from the forward pass (has_aux=True).
-    (h_value, hamiltonian_aux), (hamiltonian_gradient_r, hamiltonian_gradient_n) = (
+    (_, hamiltonian_aux), (hamiltonian_gradient_r, hamiltonian_gradient_n) = (
         hamiltonian.hamiltonian_value_and_gradients(
             state.position,
             state.refractive_index,
@@ -183,15 +185,7 @@ def _right_hand_side(
     norm = jnp.linalg.norm(hamiltonian_gradient_n)
 
     dr_ds = hamiltonian_gradient_n / norm
-    # The second term relaxes deviations from the dispersion surface,
-    # dH/ds = -lambda * H, e.g. after a step across the density ramp at the edge.
-    dn_ds = (
-        -hamiltonian_gradient_r / norm
-        - tracer_settings.constraint_relaxation_rate
-        * h_value
-        * hamiltonian_gradient_n
-        / norm**2
-    )
+    dn_ds = -hamiltonian_gradient_r / norm
 
     te = interpolators.electron_temperature(hamiltonian_aux.rho)
     dtau_ds = absorption.absorption_coefficient_conditional(
@@ -205,6 +199,84 @@ def _right_hand_side(
     )
 
     return jnp.concatenate([dr_ds, dn_ds, jnp.array([dtau_ds])])
+
+
+def _hamiltonian_value(
+    y: jt.Float[jax.Array, " n "],
+    args: tuple,
+) -> jt.Float[jax.Array, ""]:
+    """Evaluate the Hamiltonian H at an ODE state."""
+    setting, interpolators, nfp, _ = args
+    return hamiltonian.hamiltonian(
+        y[:3],
+        y[3:6],
+        lambda pos: _eval_magnetic_field(pos, interpolators, nfp),
+        lambda pos: _eval_rho(pos, interpolators, nfp),
+        interpolators.electron_density,
+        setting.frequency,
+        setting.mode,
+    )[0]
+
+
+class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
+    """PID control on an error estimate that also includes the change of H.
+
+    H is conserved along exact rays. A step that jumps over a thin layer, such as the
+    density ramp at the plasma edge, puts no Runge-Kutta stage inside it, so the
+    embedded error estimate misses the layer while H changes. The change of H over the
+    step, converted to an error of |N| as weight * |ΔH| / (2 |N|), is added to the
+    error of N.
+    """
+
+    pid: diffrax.PIDController
+    weight: jt.Float[jax.Array, ""]
+    # Required by AbstractAdaptiveStepSizeController; copied from the PID controller.
+    rtol: int | float | jax.Array | np.ndarray
+    atol: int | float | jax.Array | np.ndarray
+    norm: Callable
+
+    def __init__(self, pid: diffrax.PIDController, weight: jt.Float[jax.Array, ""]):
+        self.pid = pid
+        self.weight = weight
+        self.rtol = pid.rtol
+        self.atol = pid.atol
+        self.norm = pid.norm
+
+    def wrap(self, direction):
+        return _DispersionAwareController(self.pid.wrap(direction), self.weight)
+
+    def init(self, terms, t0, t1, y0, dt0, args, func, error_order):
+        t1_next, pid_state = self.pid.init(
+            terms, t0, t1, y0, dt0, args, func, error_order
+        )
+        # H at the start of the next step; reused until a step is accepted.
+        return t1_next, (pid_state, _hamiltonian_value(y0, args))
+
+    def adapt_step_size(
+        self, t0, t1, y0, y1_candidate, args, y_error, error_order, controller_state
+    ):
+        assert y_error is not None  # Bosh3 provides an error estimate
+        pid_state, h0 = controller_state
+        h1 = _hamiltonian_value(y1_candidate, args)
+        n = jnp.linalg.norm(y0[3:6])
+        n_error = self.weight * jnp.abs(h1 - h0) / (2 * n)
+        # The PID scales each component by its own tolerance. Rescale so that the
+        # added error is measured against the tolerance of |N|, whatever the direction
+        # of N, and add it to the first component.
+        tolerance_n = self.pid.atol + self.pid.rtol * n
+        tolerance_0 = self.pid.atol + self.pid.rtol * jnp.maximum(
+            jnp.abs(y0[3]), jnp.abs(y1_candidate[3])
+        )
+        y_error = y_error.at[3].set(
+            jnp.hypot(y_error[3], n_error * tolerance_0 / tolerance_n)
+        )
+        keep_step, t0_next, t1_next, made_jump, pid_state, result = (
+            self.pid.adapt_step_size(
+                t0, t1, y0, y1_candidate, args, y_error, error_order, pid_state
+            )
+        )
+        h0 = jnp.where(keep_step, h1, h0)
+        return keep_step, t0_next, t1_next, made_jump, (pid_state, h0), result
 
 
 def _cond_terminate(t, y, args, **kwargs):
@@ -235,8 +307,8 @@ _event = diffrax.Event(
 )
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
-# Third order on purpose: the linearly interpolated equilibrium and profiles make the
-# right-hand side only piecewise smooth, so higher-order tableaus lose their order and
+# Third order on purpose: the linearly interpolated equilibrium makes the right-hand
+# side only piecewise smooth, so higher-order tableaus lose their order and
 # Bosh3 reaches a given accuracy with the fewest right-hand-side evaluations.
 _solver = diffrax.Bosh3()
 
@@ -252,7 +324,7 @@ def _solve(
     """Core ODE solve called by trace_jitted.
 
     Starts from `position` directly. The vacuum region (ne=0, rho>1) is handled
-    automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne<1e-6,
+    automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne=0,
     giving straight-line propagation until the beam enters plasma.
 
     Output is saved at every accepted step (plus t0).  After an early-exit
@@ -261,12 +333,17 @@ def _solve(
     """
     # PI rather than diffrax's default I controller: on the non-smooth right-hand side
     # the I controller rejects far more steps and is less accurate per evaluation.
-    stepsize_controller = diffrax.PIDController(
-        rtol=tracer_settings.relative_tolerance,
-        atol=tracer_settings.absolute_tolerance,
-        dtmax=tracer_settings.max_step_size,
-        pcoeff=0.4,
-        icoeff=0.3,
+    stepsize_controller = _DispersionAwareController(
+        diffrax.PIDController(
+            rtol=tracer_settings.relative_tolerance,
+            atol=tracer_settings.absolute_tolerance,
+            dtmax=tracer_settings.max_step_size,
+            # Allow progress across residual jumps of H at micrometre scale.
+            dtmin=1e-6,
+            pcoeff=0.4,
+            icoeff=0.3,
+        ),
+        jnp.asarray(tracer_settings.dispersion_error_weight),
     )
     y0 = jnp.concatenate([position, direction, jnp.array([0.0])])
     return diffrax.diffeqsolve(

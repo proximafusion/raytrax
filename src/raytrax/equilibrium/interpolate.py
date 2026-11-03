@@ -615,8 +615,13 @@ def build_electron_density_profile_interpolator(
     density decreases from $n_e(\rho_\mathrm{edge})$ to zero over a thin layer of
     width $\Delta\rho = 0.02$, so that rays are refracted at the plasma–vacuum
     interface for profiles with a finite edge density. The ramp is sampled from a
-    cubic smoothstep and linearly interpolated, like the profile inside the grid,
-    which is unchanged.
+    cubic Hermite polynomial that starts with the slope of the last profile
+    interval and ends with zero slope. The slope is clipped so that the ramp only
+    decreases. Profile and ramp are interpolated with a shape-preserving cubic
+    spline: the density has a continuous gradient and does not overshoot the data
+    between knots, so it cannot turn negative at the end of the ramp. Profiles need
+    not be monotonic; at a local maximum or minimum of the data the gradient is
+    zero at that knot.
 
     Args:
         radial_profiles: The radial profiles.
@@ -628,13 +633,25 @@ def build_electron_density_profile_interpolator(
     ne = radial_profiles.electron_density
     s = jnp.linspace(0.0, 1.0, _VACUUM_RAMP_POINTS + 1)[1:]
     rho_ramp = rho[-1] + _VACUUM_RAMP_WIDTH * s
-    ne_ramp = ne[-1] * (1.0 - s**2 * (3.0 - 2.0 * s))
+    edge_slope = (ne[-1] - ne[-2]) / (rho[-1] - rho[-2])
+    # Slope in units of s; between -3 ne_edge and 0 the ramp decreases monotonically.
+    m = jnp.clip(edge_slope * _VACUUM_RAMP_WIDTH, -3.0 * ne[-1], 0.0)
+    ne_ramp = ne[-1] * (1.0 - s**2 * (3.0 - 2.0 * s)) + m * s * (1.0 - s) ** 2
+    dne_ramp = (
+        ne[-1] * 6.0 * s * (s - 1.0) + m * (1.0 - s) * (1.0 - 3.0 * s)
+    ) / _VACUUM_RAMP_WIDTH
 
+    # Knot derivatives: shape-preserving estimates inside the profile, the exact ramp
+    # derivatives beyond it, and the ramp's initial slope at the edge, so that the
+    # spline joins profile and ramp without bending the last profile interval.
+    dne = interpax.approx_df(rho, ne, "monotonic-0", 0)
+    dne = dne.at[-1].set(m / _VACUUM_RAMP_WIDTH)
     return interpax.Interpolator1D(
         x=jnp.concatenate([rho, rho_ramp]),
         f=jnp.concatenate([ne, ne_ramp]),
-        method="linear",
+        method="monotonic-0",
         extrap=0.0,
+        fx=jnp.concatenate([dne, dne_ramp]),
     )
 
 
@@ -642,6 +659,10 @@ def build_electron_temperature_profile_interpolator(
     radial_profiles: RadialProfiles,
 ) -> interpax.Interpolator1D:
     """Build electron temperature profile interpolator.
+
+    Interpolates with a shape-preserving cubic spline, like the density: the
+    temperature has a continuous gradient and does not overshoot the data between
+    knots.
 
     Args:
         radial_profiles: The radial profiles.
@@ -652,7 +673,7 @@ def build_electron_temperature_profile_interpolator(
     return interpax.Interpolator1D(
         x=radial_profiles.rho,
         f=radial_profiles.electron_temperature,
-        method="linear",
+        method="monotonic-0",
         extrap=0.0,
     )
 
