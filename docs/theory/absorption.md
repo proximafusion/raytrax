@@ -129,15 +129,23 @@ For $|N_\parallel| < 1$ this is an ellipse in the $(u_\parallel, u_\perp)$ plane
 
 $$u_\pm = \frac{sY N_\parallel \pm \sqrt{s^2 Y^2 + N_\parallel^2 - 1}}{1 - N_\parallel^2}$$
 
-A resonance exists only if $s^2 Y^2 + N_\parallel^2 > 1$. Since $\gamma \ge 1$, absorption therefore takes place only where $s|\omega_c| > \omega\sqrt{1 - N_\parallel^2}$, i.e. on the high-field side of the cold resonance for perpendicular propagation (*relativistic downshift*). For $s \le 0$ and $|N_\parallel| < 1$ the resonance condition has no solution, so only positive harmonics $s = 1, \dots, s_\text{max}$ contribute.
+In this elliptic regime, a resonance with nonzero extent exists only if $s^2 Y^2 + N_\parallel^2 > 1$. Since $\gamma \ge 1$, absorption therefore takes place only where $s|\omega_c| > \omega\sqrt{1 - N_\parallel^2}$, i.e. on the high-field side of the cold resonance for perpendicular propagation (*relativistic downshift*). For $s \le 0$ and $|N_\parallel| < 1$ the resonance condition has no solution, so only positive harmonics $s = 1, \dots, s_\text{max}$ contribute.
+
+At $|N_\parallel| = 1$ the resonance is a parabola; above 1 it is a hyperbola. For each positive harmonic, imposing $\gamma \ge 1$ selects a branch that starts at a finite low-energy endpoint and extends to infinity in the direction of $N_\parallel$. For $N_\parallel \ne 0$, this endpoint can be written as
+
+$$u_0 = \operatorname{sgn}(N_\parallel)\frac{1-s^2Y^2}{sY|N_\parallel|+\sqrt{s^2Y^2+N_\parallel^2-1}}.$$
+
+This rationalized expression stays finite at $|N_\parallel|=1$. Below 1 it equals the low-energy ellipse endpoint, $u_-$ for $N_\parallel>0$ and $u_+$ for $N_\parallel<0$. At and above 1 the physical integration domain is $[u_0,\infty)$ for positive $N_\parallel$ and $(-\infty,u_0]$ for negative $N_\parallel$; the interval between the hyperbola's two roots is not physical.
+
+Raytrax keeps the positive-harmonic sum also for $|N_\parallel|>1$. Zero and negative harmonics can have resonances in that regime but are not included. The bounds correction alone therefore does not establish the accuracy of the absorption model for arbitrary large $|N_\parallel|$.
 
 ### Anti-Hermitian Part
 
 For an isotropic distribution function $f(\gamma)$, normalized as $\int f\, d^3u = 1$, the anti-Hermitian part contracted with the polarization vector is
 
-$$\hat{\boldsymbol{e}}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{\boldsymbol{e}} = -2\pi^2 X \sum_{s=1}^{s_\text{max}} \int_{u_-}^{u_+} du_\parallel\, \left|\hat{\boldsymbol{e}} \cdot \boldsymbol{\Pi}_s\right|^2 \frac{\partial f}{\partial \gamma}\bigg|_{\gamma = sY + N_\parallel u_\parallel}$$
+$$\hat{\boldsymbol{e}}^* \cdot \boldsymbol{\varepsilon}_r^A \cdot \hat{\boldsymbol{e}} = -2\pi^2 X \sum_{s=1}^{s_\text{max}} \int_{\mathcal{R}_s} du_\parallel\, \left|\hat{\boldsymbol{e}} \cdot \boldsymbol{\Pi}_s\right|^2 \frac{\partial f}{\partial \gamma}\bigg|_{\gamma = sY + N_\parallel u_\parallel}$$
 
-where $u_\perp$ is given by the resonance ellipse and
+where $\mathcal{R}_s$ is the physical domain described above ($[u_-,u_+]$ for an ellipse), $u_\perp$ is given by the resonance condition, and
 
 $$\boldsymbol{\Pi}_s = \left(\frac{sY}{N_\perp} J_s(b),\; -i u_\perp J_s'(b),\; u_\parallel J_s(b)\right), \qquad b = \frac{N_\perp u_\perp}{Y}$$
 
@@ -153,11 +161,11 @@ In the weakly relativistic limit, the expression above agrees with the anti-Herm
 
 ### Numerical Evaluation
 
-Along the resonance ellipse, $\gamma$ grows linearly with $u_\parallel$, so the integrand is largest at the low-$\gamma$ end of $[u_-, u_+]$ ($u_-$ for $N_\parallel > 0$, $u_+$ for $N_\parallel < 0$) and decays from there like $e^{-\mu |N_\parallel| \Delta u_\parallel}$. The integral is evaluated with Gauss–Legendre quadrature on a window that starts at this end and extends over $K$ decay lengths $1/(\mu |N_\parallel|)$, or over the whole interval if that is shorter. The integrand is analytic on the window and vanishes at the ends of the ellipse, so the quadrature converges exponentially.
+Along the resonance curve, $\gamma$ grows linearly in the direction of $N_\parallel$, and the Maxwell–Jüttner factor decays from the low-$\gamma$ endpoint like $e^{-\mu |N_\parallel| \Delta u_\parallel}$. The integral is evaluated with Gauss–Legendre quadrature on a window that starts at this endpoint and extends over $K$ decay lengths $1/(\mu |N_\parallel|)$. For an ellipse, the window is capped at the full interval length; for a parabola or hyperbola, the physical branch has infinite extent and only the exponential truncation limits the window. The integrand is analytic on the window, so the quadrature converges exponentially. At $N_\parallel=0$, the full finite ellipse interval is used.
 
 The window length $K$ and the number of nodes follow from the requested relative accuracy of each integral, the `resonance_rtol` argument of [`absorption_coefficient`][raytrax.physics.absorption.absorption_coefficient], and from the harmonic $s$, since the integrand behaves like $t^s e^{-t}$ near the low-$\gamma$ end ($t$ in decay lengths). For the default $10^{-14}$, the window is about 36 decay lengths with 24 nodes at $s = 1$ and 39 decay lengths with 26 nodes at $s = 2$.
 
-A harmonic whose resonance ellipse does not reach $|u_\parallel| < 7\,v_\text{th}/c$, where the Maxwell–Jüttner distribution has decayed to about $10^{-11}$ of its peak, contributes zero. If no harmonic reaches it, the absorption coefficient is zero, and the dielectric tensor, polarization and power flux are not evaluated.
+A harmonic whose low-energy endpoint lies outside $|u_\parallel| < 7\,v_\text{th}/c$ contributes zero. This is the existing thermal-bulk cutoff, retained for all three conics. If no harmonic reaches it, the absorption coefficient is zero, and the dielectric tensor, polarization and power flux are not evaluated.
 
 It is implemented in [`anti_hermitian_dielectric_form`][raytrax.physics.absorption.anti_hermitian_dielectric_form].
 

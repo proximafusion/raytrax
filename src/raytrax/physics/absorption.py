@@ -85,27 +85,33 @@ def absorption_coefficient_conditional(
     )
 
 
-def _resonance_circle(
+def _resonance_bounds(
     nY: ScalarFloat, n_para: ScalarFloat, thermal_velocity: ScalarFloat
 ) -> tuple[ScalarFloat, ScalarFloat, ScalarBool]:
-    """Ends of the resonance circle in u_∥ and whether it reaches the bulk of the distribution."""
+    """Low-energy endpoint, extent in u_∥, and whether the resonance reaches the bulk.
+
+    The positive-energy resonance is an ellipse for |N_∥| < 1, a parabola at
+    |N_∥| = 1, and one branch of a hyperbola for |N_∥| > 1. Starting at the
+    low-energy endpoint, gamma increases in the direction of N_∥. Only the
+    ellipse has a finite extent in that direction.
+    """
     denom = 1 - n_para**2
     # 1e-30 floor: at disc=0 (exact 2nd-harmonic resonance), sqrt'(0)=Inf causes
     # 0*Inf=NaN in the adjoint.  The floor keeps the gradient finite.
-    # jnp.where zeros delta_u for disc<0; the VJP of the enclosing lax.cond
-    # evaluates this code even for the non-resonant branch.
+    # The VJP of the enclosing lax.cond evaluates this code even for the
+    # non-resonant branch.
     disc = n_para**2 + nY**2 - 1
-    delta_u = jnp.sqrt(jnp.maximum(1e-30, disc)) / jnp.maximum(jnp.abs(denom), 1e-10)
-    delta_u = jnp.where(disc < 0, 0.0, delta_u)
-    u_res = nY * n_para / denom
+    root = jnp.sqrt(jnp.maximum(1e-30, disc))
+    sign = jnp.where(n_para < 0, -1.0, 1.0)
+    # Rationalize (nY * n_para - sign * sqrt(disc)) / (1 - n_para**2)
+    # to avoid cancellation and division by zero at |N_∥| = 1.
+    low_gamma_end = sign * (1 - nY**2) / (nY * jnp.abs(n_para) + root)
+    ellipse = denom > 0
+    extent = jnp.where(ellipse, 2 * root / jnp.where(ellipse, denom, 1.0), jnp.inf)
     # Use u_cutoff = 7 * thermal_velocity (exp(-24.5) ≈ 2e-11 of distribution peak).
     u_cutoff = 7.0 * thermal_velocity
-    # Use the unclamped circle so that wide circles that straddle u_∥ = 0 are not
-    # mistakenly rejected.
-    u_min = u_res - delta_u
-    u_max = u_res + delta_u
-    in_bulk = (disc >= 0) & (jnp.minimum(jnp.abs(u_min), jnp.abs(u_max)) < u_cutoff)
-    return u_min, u_max, in_bulk
+    in_bulk = (disc >= 0) & (jnp.abs(low_gamma_end) < u_cutoff)
+    return low_gamma_end, extent, in_bulk
 
 
 def _any_harmonic_resonant(
@@ -127,7 +133,7 @@ def _any_harmonic_resonant(
     resonant = jnp.array(False)
     for harmonic_index in range(1, max_harmonic + 1):
         nY = harmonic_index * cyclotron_frequency / frequency
-        resonant = resonant | _resonance_circle(nY, n_para, thermal_velocity)[2]
+        resonant = resonant | _resonance_bounds(nY, n_para, thermal_velocity)[2]
     return resonant
 
 
@@ -289,15 +295,10 @@ def anti_hermitian_dielectric_form(
             # The resonance condition is given by
             # gamma = nY + n_para * u_para
             # where nY = harmonic_index * cyclotron_frequency / frequency
-            # Also, from p = m_0 * c * gamma one can derive that
-            # gamma^2 = 1 + u_para^2 + u_perp^2
-            # consequently, the resonance condition can be written as the equation
-            # for a circle in the u_perp, u_para plane:
-            # 1 + u_para^2 + u_perp^2 = n_para^2 + (nY)^2
-            # the left and right boundaries of this circle are obtained by setting
-            # u_perp = 0 and solving for u_para. If the discriminant of this
-            # quadratic equation is negative, the resonance condition cannot be
-            # satisfied anywhere in the plane, and the integral is zero.
+            # Combining this with gamma^2 = 1 + u_para^2 + u_perp^2 gives
+            # a quadratic in u_para at u_perp = 0. Its discriminant is
+            # proportional to n_para^2 + nY^2 - 1; if negative, there are
+            # no resonant electrons and the integral is zero.
             (
                 refractive_index_para**2
                 + (harmonic_index * cyclotron_frequency / frequency) ** 2
@@ -356,41 +357,28 @@ def compute_resonance_integral(
             sets the integration window and the number of quadrature nodes. Must be
             a Python float (compile-time constant for JIT).
     """  # noqa: E501
-    # Integration bounds from the resonance circle.  The conditions
-    # γ = nY + N_∥·u_∥ and γ² = 1 + u_∥² + u_⊥² define a circle in the
-    # (u_∥, u_⊥) plane; setting u_⊥=0 gives the endpoints u_min and u_max.
+    # Integration bounds from the positive-energy resonance curve. The conditions
+    # γ = nY + N_∥·u_∥ and γ² = 1 + u_∥² + u_⊥² define a conic in the
+    # (u_∥, u_⊥) plane; setting u_⊥=0 gives its low-energy endpoint.
     nY = harmonic_index * cyclotron_frequency / frequency
     n_para = refractive_index_para
-    denom = 1 - n_para**2
-    u_min_raw, u_max_raw, resonance_in_bulk = _resonance_circle(
+    low_gamma_end, extent, resonance_in_bulk = _resonance_bounds(
         nY, n_para, thermal_velocity
     )
 
     # The resonant electrons lie on a curve in momentum space along which
     # γ = nY + N_∥·u_∥ grows linearly, so the integrand is largest at the
-    # low-γ end of the curve (u_min_raw if N_∥ > 0, else u_max_raw) and decays
-    # like exp(-μ|N_∥|·distance) from there, μ = 2/v_th². Integrate from that end
+    # low-γ end of the curve and decays like exp(-μ|N_∥|·distance) from there,
+    # μ = 2/v_th². Integrate from that end
     # only as far as needed to reach the requested relative accuracy, or the
     # whole curve if it is shorter.
     mu = 2 / thermal_velocity**2
     n_decay_lengths, n_nodes = _resonance_quadrature(resonance_rtol, harmonic_index)
     nodes, weights = np.polynomial.legendre.leggauss(n_nodes)
     decay_length = 1 / (mu * jnp.maximum(jnp.abs(n_para), 1e-12))
-    window_length = n_decay_lengths * decay_length
-    u_min = jnp.where(
-        n_para < 0, jnp.maximum(u_min_raw, u_max_raw - window_length), u_min_raw
-    )
-    u_max = jnp.where(
-        n_para < 0, u_max_raw, jnp.minimum(u_max_raw, u_min_raw + window_length)
-    )
-    # For N_∥ → 1 the resonance circle diverges; zero the contribution since the
-    # quasi-longitudinal regime is outside ECH validity.
-    near_lightline = jnp.abs(denom) < 1e-4
-    u_min = jnp.where(near_lightline, 0.0, u_min)
-    u_max = jnp.where(near_lightline, 0.0, u_max)
-
-    # The u_gamma_limit = (1-nY)/N_∥ bound is not enforced explicitly; the
-    # u_perp^2 clamp in quasilinear_diffusion_coefficient zeros the integrand for γ<1.
+    window_length = jnp.minimum(extent, n_decay_lengths * decay_length)
+    u_min = jnp.where(n_para < 0, low_gamma_end - window_length, low_gamma_end)
+    u_max = jnp.where(n_para < 0, low_gamma_end, low_gamma_end + window_length)
 
     def compute_integral() -> ScalarFloat:
         # K2_scaled = kve(2, mu) depends only on thermal_velocity, which is
@@ -398,8 +386,8 @@ def compute_resonance_integral(
         # it is evaluated exactly once rather than once per node.
         K2_scaled = bessel.kve_jax(2, mu)
 
-        # The integrand is analytic on the window and vanishes at the circle
-        # ends, so Gauss-Legendre converges exponentially.
+        # The integrand is analytic on the physical integration window,
+        # so Gauss-Legendre converges exponentially.
         half_width = 0.5 * (u_max - u_min)
         u_grid = half_width * nodes + 0.5 * (u_max + u_min)
 
