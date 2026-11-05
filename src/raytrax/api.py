@@ -16,7 +16,7 @@ from .equilibrium.interpolate import (
 )
 from .tracer.buffers import Interpolators, TraceBuffers
 from .tracer.ray import RaySetting
-from .tracer.solver import trace_jitted
+from .tracer.solver import _ARC_LENGTH_TOLERANCE, trace_jitted
 from .types import (
     Beam,
     BeamProfile,
@@ -324,7 +324,7 @@ def trace(
         s_end = float(result.arc_length[n - 1])
         if n == settings.max_steps + 1:
             cause = f"ran out of steps (TracerSettings.max_steps={settings.max_steps})"
-        elif s_end >= settings.max_arc_length:
+        elif s_end >= settings.max_arc_length - _ARC_LENGTH_TOLERANCE:
             cause = (
                 f"reached TracerSettings.max_arc_length={settings.max_arc_length:g} m"
             )

@@ -13,18 +13,25 @@ jax.config.update("jax_enable_x64", True)
 def test_dispersion_controller_preserves_smooth_flow_gradient(monkeypatch):
     """An analytic conserved flow checks AD with the extra error term on and off."""
     monkeypatch.setattr(
-        solver, "_hamiltonian_value", lambda y, args: jnp.sum(y[:6] ** 2) - 1
+        solver,
+        "_hamiltonian_scales",
+        lambda y, args: solver._HamiltonianScales(
+            value=jnp.sum(y[:6] ** 2) - 1,
+            frequency_scale=jnp.asarray(-2.0),
+            velocity=jnp.array([y[3], 0.0, 0.0]),
+        ),
     )
 
     def rhs(t, y, args):
-        # Harmonic oscillator: x^2 + p^2 is conserved; tau integrates x^2.
-        return jnp.array([y[3], 0.0, 0.0, -y[0], 0.0, 0.0, y[0] ** 2])
+        # Harmonic oscillator: x^2 + p^2 is conserved; tau integrates x^2 and the
+        # arc length |dx/dt|.
+        return jnp.array([y[3], 0.0, 0.0, -y[0], 0.0, 0.0, y[0] ** 2, jnp.abs(y[3])])
 
     def integral(theta, weight):
         controller = solver._DispersionAwareController(
-            diffrax.PIDController(rtol=1e-7, atol=1e-9), weight
+            diffrax.PIDController(rtol=1e-7, atol=1e-9), weight, jnp.asarray(0.1)
         )
-        y0 = jnp.array([jnp.cos(theta), 0.0, 0.0, jnp.sin(theta), 0.0, 0.0, 0.0])
+        y0 = jnp.array([jnp.cos(theta), 0.0, 0.0, jnp.sin(theta), 0.0, 0.0, 0.0, 0.0])
         result = diffrax.diffeqsolve(
             diffrax.ODETerm(rhs),
             diffrax.Bosh3(),
@@ -35,7 +42,7 @@ def test_dispersion_controller_preserves_smooth_flow_gradient(monkeypatch):
             stepsize_controller=controller,
             max_steps=4096,
         )
-        return result.ys[-1, -1]
+        return result.ys[-1, 6]
 
     theta, end = 1.2, 0.5
     expected_value = end / 2 + (np.sin(2 * end - 2 * theta) + np.sin(2 * theta)) / 4
@@ -121,7 +128,7 @@ def test_ray_tracing():
     )
 
     assert n_valid.item() > 0
-    assert result.ode_state.shape[1] == 7
+    assert result.ode_state.shape[1] == 8
 
 
 def test_quantities_computed_during_solve():

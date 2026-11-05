@@ -16,7 +16,7 @@ settings = raytrax.TracerSettings(
     absolute_tolerance=1e-6,  # PID controller atol
     max_step_size=0.05,  # metres
     max_arc_length=20.0,  # metres
-    dispersion_error_weight=30.0,  # weight of the change of H in the step error
+    dispersion_error_weight=30.0,  # weight of the frequency mismatch δω/ω (change of H) in the step error
     max_steps=4096,  # step budget, sizes the output buffers
 )
 
@@ -27,13 +27,13 @@ The five float fields are ordinary JAX values (not static compile-time constants
 
 ### When to Adjust the Settings
 
-**`max_step_size`** is the most impactful parameter. The adaptive controller ([`Bosh3`](https://docs.kidger.site/diffrax/api/solvers/ode_solvers/#diffrax.Bosh3) + a PI [`PIDController`](https://docs.kidger.site/diffrax/api/stepsize_controller/#diffrax.PIDController)) will take steps smaller than this when needed, but never larger. Reducing it forces finer integration near caustics or in steep-gradient regions — at the cost of more steps. In vacuum the error estimate is zero, so this cap is also what keeps the solver from stepping over the plasma.
+**`max_step_size`** is the most impactful parameter. The adaptive controller ([`Bosh3`](https://docs.kidger.site/diffrax/api/solvers/ode_solvers/#diffrax.Bosh3) + a PI [`PIDController`](https://docs.kidger.site/diffrax/api/stepsize_controller/#diffrax.PIDController)) will take steps smaller than this when needed, but never larger. Reducing it forces finer integration near caustics or in steep-gradient regions — at the cost of more steps. In vacuum the error estimate is zero, so this cap is also what keeps the solver from stepping over the plasma. At a reflection the group velocity vanishes and |∂H/∂n| has a kink inside the step that contains the turning point; the arc length of that one step, integrated with the Runge-Kutta stages, carries an error of a few percent of that step (tens of micrometres with the defaults). The ray itself is unaffected; absorption right at a reflection and derivatives of the total arc length converge with `max_step_size`.
 
 **`relative_tolerance` / `absolute_tolerance`** control the error estimate the PID controller tries to satisfy per step. Tightening them (e.g. `rtol=1e-6`) improves accuracy but increases the number of steps. The defaults are sufficient for power deposition profiles; gradient-based optimisation may benefit from tighter tolerances.
 
-**`dispersion_error_weight`** adds the change of the Hamiltonian to the step-size error estimate, helping detect steps that skip the thin edge-density ramp (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). Larger values tighten this conservation check, usually requiring more steps. Zero disables the extra error term.
+**`dispersion_error_weight`** adds the change of the Hamiltonian over a step to the step-size error estimate, expressed as the relative frequency mismatch δω/ω = ΔH / (ω ∂H/∂ω) it amounts to (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). It detects steps that skip the thin edge-density ramp or otherwise leave the dispersion surface. Larger values tighten this check, usually requiring more steps. Zero disables the extra error term.
 
-**`max_arc_length`** is a safety cutoff. Rays that haven't terminated (by leaving the plasma or being absorbed) are stopped at this arc length. 20 m is generous for any current fusion device; you would only need to lower it to speed up debugging of misconfigured inputs, or raise it for very large devices.
+**`max_arc_length`** is a safety cutoff. Rays that haven't terminated (by leaving the plasma or being absorbed) are stopped at this arc length, located by the same root finder as the exit from the plasma (the integration variable is the Hamiltonian time; the arc length is integrated alongside, see [Ray Tracing](theory/ray-tracing.md#ray-tracing-equations)). 20 m is generous for any current fusion device; you would only need to lower it to speed up debugging of misconfigured inputs, or raise it for very large devices.
 
 **`max_steps`** is the step budget of the ODE solver and sizes the output buffers (`max_steps + 1` entries per trajectory quantity with `trim=False`). If a ray needs more steps, typically because of a small `max_step_size` or tight tolerances, the trace stops early: `TraceResult.incomplete` is set and, with `trim=True`, `trace` emits a `RuntimeWarning` naming the cause. The absorbed power of such a trace is underestimated, so raise `max_steps` until the flag is no longer set. Reaching `max_arc_length` sets the same flag.
 

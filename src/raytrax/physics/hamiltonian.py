@@ -34,12 +34,15 @@ def hamiltonian(
     Float[jax.Array, ""],
     HamiltonianAux,
 ]:
-    r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_\mathrm{AH}^2(\boldsymbol{r}, \boldsymbol{n})$.
+    r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = n_\perp^2 - N_\perp^2(n_\parallel^2, \boldsymbol{r})$.
 
     Rays propagate along level sets $\mathcal{H} = 0$. In vacuum ($n_e = 0$) the
-    trivial form
-    $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used; elsewhere the cold-plasma
-    Appleton-Hartree dispersion relation selects the O- or X-mode refractive index squared.
+    trivial form $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used; elsewhere
+    $N_\perp^2$ is the O- or X-mode root of the cold-plasma dispersion relation at
+    the parallel refractive index $n_\parallel = \boldsymbol{n} \cdot \boldsymbol{B} / |\boldsymbol{B}|$
+    of the ray, see `dispersion.refractive_index_perp_squared_cold`. This form is
+    smooth where rays are reflected, in particular at the O-mode cutoff, and depends
+    on $n_\parallel$ only through its square.
 
     Args:
         position: Cartesian position vector $\boldsymbol{r}$ in metres.
@@ -122,29 +125,25 @@ def _hamiltonian_cold(
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
 ) -> Float[jax.Array, ""]:
-    """Compute the Hamiltonian for a cold plasma."""
-    abs_n = jnp.linalg.norm(refractive_index)
-    # component parallel to the B field
-    tangent = magnetic_field / jnp.linalg.norm(magnetic_field)
+    """Compute the Hamiltonian for a cold plasma, n_perp^2 - N_perp^2(n_para^2)."""
+    magnetic_field_strength = jnp.linalg.norm(magnetic_field)
+    tangent = magnetic_field / magnetic_field_strength
     refractive_index_para = jnp.dot(refractive_index, tangent)
-    # component perpendicular to the B field
-    refractive_index_perp = jnp.linalg.norm(
-        refractive_index - refractive_index_para * tangent
+    # Squares only: the norm of the perpendicular component is not differentiable
+    # where it vanishes, which is where rays are reflected.
+    refractive_index_perp_squared = (
+        jnp.dot(refractive_index, refractive_index) - refractive_index_para**2
     )
     cyclotron_frequency = quantities.electron_cyclotron_frequency(
-        magnetic_field_strength=jnp.linalg.norm(magnetic_field)
+        magnetic_field_strength=magnetic_field_strength
     )
     plasma_frequency = quantities.electron_plasma_frequency(
         electron_density_1e20_per_m3=electron_density_1e20_per_m3
     )
-    n2_dispersion = dispersion.dispersion_cold(
-        refractive_index_perp=refractive_index_perp,
-        refractive_index_para=refractive_index_para,
-        frequency=frequency,
-        cyclotron_frequency=cyclotron_frequency,
-        plasma_frequency=plasma_frequency,
+    n_perp2_dispersion = dispersion.refractive_index_perp_squared_cold(
+        refractive_index_para_squared=refractive_index_para**2,
+        X=(plasma_frequency / frequency) ** 2,
+        Y=cyclotron_frequency / frequency,
         mode=mode,
     )
-    result = abs_n**2 - jnp.real(n2_dispersion)
-    # return a scalar
-    return jnp.squeeze(result)
+    return jnp.squeeze(refractive_index_perp_squared - n_perp2_dispersion)

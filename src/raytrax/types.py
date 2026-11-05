@@ -211,13 +211,16 @@ class TracerSettings:
     cap also keeps the solver from stepping over the plasma."""
 
     max_arc_length: float = 20.0
-    """Maximum arc length to integrate in metres before the solver gives up."""
+    """Arc length in metres at which a ray that has not left the plasma or been
+    absorbed is stopped; `TraceResult.incomplete` is then set."""
 
     dispersion_error_weight: float = 30.0
     """Weight of the change of the Hamiltonian H over a step in the step-size error
     estimate. H is conserved along exact rays, so a change of H signals a step that
     jumped over structure the Runge-Kutta stages missed, e.g. the density ramp at
-    the plasma edge. Zero disables it."""
+    the plasma edge. The change is measured as the relative frequency mismatch
+    |ΔH| / |ω ∂H/∂ω| it amounts to, times this weight, against the relative
+    tolerance. Zero disables it."""
 
     max_steps: int = dataclass_field(default=4096, metadata={"static": True})
     """Maximum number of ODE steps. Sizes the padded output buffers
