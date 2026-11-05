@@ -92,8 +92,10 @@ class MagneticConfiguration(SafetensorsMixin):
     rphiz: jt.Float[jax.Array, "npoints 3"]
     r"""The ($R$, $\phi$, $Z$) coordinates of the points on the interpolation grid.
 
-    Must be a tensor grid that is uniformly spaced along each axis: the field and
-    $\rho$ are interpolated using only the first and last node of each axis.
+    Must be a tensor grid that is uniformly spaced along each axis, with at least 4
+    nodes per axis: the field and $\rho$ are interpolated using only the first and
+    last node of each axis. For a stellarator the $\phi$ axis spans the fundamental
+    domain $[0, \pi/n_{fp}]$ and the $Z$ grid must be symmetric about $Z = 0$.
     """
 
     magnetic_field: jt.Float[jax.Array, "npoints 3"]
@@ -513,10 +515,47 @@ def _sum_harmonics(
     return a_m @ phase, a_m @ (1j * m * phase)
 
 
+def _catmull_rom_weights(u: jax.Array) -> jax.Array:
+    """Weights of the nodes -1, 0, 1, 2 at fractional position u in [0, 1] of a cell."""
+    u2, u3 = u * u, u * u * u
+    return jnp.stack(
+        [
+            (-u3 + 2 * u2 - u) / 2,
+            (3 * u3 - 5 * u2 + 2) / 2,
+            (-3 * u3 + 4 * u2 + u) / 2,
+            (u3 - u2) / 2,
+        ]
+    )
+
+
+def _block_weights(w: jax.Array, shift: jax.Array, clamp: bool) -> jax.Array:
+    """Weights of a 4-node block that starts `shift` nodes after the stencil.
+
+    In the first cell of an axis (shift = -1) the stencil node before the grid is
+    missing, in the last cell (shift = +1) the one after it. With `clamp` the missing
+    node takes the value of the edge node, otherwise its weight is dropped here and the
+    caller supplies the node.
+    """
+    if clamp:
+        left = jnp.stack([w[0] + w[1], w[2], w[3], jnp.zeros_like(w[0])])
+        right = jnp.stack([jnp.zeros_like(w[0]), w[0], w[1], w[2] + w[3]])
+    else:
+        left = jnp.stack([w[1], w[2], w[3], jnp.zeros_like(w[0])])
+        right = jnp.stack([jnp.zeros_like(w[0]), w[0], w[1], w[2]])
+    return jnp.where(shift < 0, left, jnp.where(shift > 0, right, w))
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class RegularGridInterpolator:
-    """Multilinear interpolation on a uniform grid.
+class GridInterpolator:
+    r"""Catmull-Rom interpolation on a uniform grid, with continuous first derivatives.
+
+    The ray equations contain the gradients of $\boldsymbol{B}$ and $\rho$, so the
+    derivatives of a trajectory with respect to its inputs need their second
+    derivatives. Interpolants with continuous first derivatives keep these finite,
+    which makes gradients through the ray tracer correct. Each value depends on the
+    4 nearest nodes along each axis. At the outer nodes of the $R$ and $Z$ axes the
+    missing neighbour takes the value of the edge node.
 
     The first `lower.size` axes of `f` are the grid axes, any further axes are
     vector components. Grid values that are NaN and query points outside the
@@ -531,55 +570,141 @@ class RegularGridInterpolator:
     """Coordinates of the last grid node along each axis."""
 
     f: jt.Float[jax.Array, "..."]
-    """Values on the grid."""
+    """Values on the grid, at least 4 nodes along each grid axis."""
+
+    mirror_sign: jt.Float[jax.Array, "..."]
+    r"""Sign of each component at the stellarator-mirrored point $(-\phi, -Z)$."""
 
     fill: float = dataclass_field(metadata={"static": True})
     """Value for NaN grid nodes and for points outside the grid."""
 
+    square: bool = dataclass_field(default=False, metadata={"static": True})
+    r"""Interpolate $f^2$ and return its square root.
+
+    $\rho$ has a cone at the magnetic axis, which a cubic resolves poorly, but
+    $\rho^2$ is smooth there.
+    """
+
+    stellarator_mirror: bool = dataclass_field(default=False, metadata={"static": True})
+    r"""The axes are $(R, \phi, Z)$ on the fundamental domain $[0, \pi/n_{fp}]$.
+
+    Beyond $\phi = 0$ and $\phi = \pi/n_{fp}$ the stencil reads the
+    stellarator-mirrored plane, with $Z$ reversed and components multiplied by
+    `mirror_sign`, so the first derivatives are continuous across these planes. The
+    $Z$ grid must be symmetric about $Z = 0$.
+    """
+
+    def _nodes(self, block: jax.Array) -> jax.Array:
+        block = jnp.nan_to_num(block, nan=self.fill)
+        return block * block if self.square else block
+
+    # Jitted so that a call outside jit compiles once; inside jit it is inlined.
+    @jax.jit
     def __call__(self, *x: jt.Float[jax.Array, ""]) -> jax.Array:
         """Interpolate at the point with coordinates `x`, one per grid axis."""
         ndim = len(x)
-        n = jnp.array(self.f.shape[:ndim])
+        shape = self.f.shape[:ndim]
+        components = self.f.shape[ndim:]
+        n = jnp.array(shape)
         t = (jnp.stack(x) - self.lower) / (self.upper - self.lower) * (n - 1)
         index = jnp.clip(jnp.floor(t).astype(jnp.int32), 0, n - 2)
-        weight = t - index
-        corners = jax.lax.dynamic_slice(
-            self.f,
-            (*index, *[0] * (self.f.ndim - ndim)),
-            (2,) * ndim + self.f.shape[ndim:],
+        w = _catmull_rom_weights(t - index)
+        # The block always lies inside the grid; in the first and last cell of an
+        # axis it is shifted by one node against the stencil.
+        start = jnp.clip(index - 1, 0, n - 4)
+        shift = index - 1 - start
+        mirrored_axis = 1 if self.stellarator_mirror else None
+        weights = [
+            _block_weights(w[:, i], shift[i], clamp=i != mirrored_axis)
+            for i in range(ndim)
+        ]
+        block = jax.lax.dynamic_slice(
+            self.f, (*start, *[0] * len(components)), (4,) * ndim + components
         )
-        value = jnp.nan_to_num(corners, nan=self.fill)
-        for i in range(ndim):
-            value = (1 - weight[i]) * value[0] + weight[i] * value[1]
+        value = self._nodes(block)
+        for weight in weights:
+            value = jnp.tensordot(weight, value, axes=(0, 0))
+        if self.stellarator_mirror:
+            # Only the first and last phi cell need the mirrored plane. Reading it
+            # in every cell would make tracing about a third slower.
+            value = value + jax.lax.cond(
+                shift[1] != 0,
+                self._mirror_plane,
+                lambda *_: jnp.zeros(components),
+                start,
+                shift[1],
+                w[:, 1],
+                weights[0],
+                weights[2],
+            )
+        if self.square:
+            value = jnp.sqrt(jnp.maximum(value, 1e-12))
         inside = jnp.all((t >= 0) & (t <= n - 1))
         return jnp.where(inside, value, self.fill)
+
+    def _mirror_plane(
+        self,
+        start: jax.Array,
+        shift_phi: jax.Array,
+        w_phi: jax.Array,
+        weights_r: jax.Array,
+        weights_z: jax.Array,
+    ) -> jax.Array:
+        """Contribution of the phi plane beyond the edge of the fundamental domain.
+
+        That plane is the stellarator mirror of the plane next to the edge, read
+        with Z reversed. `w_phi` are the stencil weights along phi, of which the
+        missing plane has the first (at phi = 0) or the last (at phi = pi/nfp).
+        """
+        n_phi, n_z = self.f.shape[1], self.f.shape[2]
+        components = self.f.shape[3:]
+        plane = jax.lax.dynamic_slice(
+            self.f,
+            (start[0], jnp.where(shift_phi < 0, 1, n_phi - 2), n_z - 4 - start[2])
+            + (0,) * len(components),
+            (4, 1, 4) + components,
+        )[:, 0]
+        plane = self._nodes(jnp.flip(plane, 1) * self.mirror_sign)
+        weight = jnp.where(shift_phi < 0, w_phi[0], w_phi[3])
+        return weight * jnp.tensordot(
+            weights_z, jnp.tensordot(weights_r, plane, axes=(0, 0)), axes=(0, 0)
+        )
 
 
 def build_magnetic_field_interpolator(
     magnetic_configuration: MagneticConfiguration,
-) -> RegularGridInterpolator:
+) -> GridInterpolator:
     """Build a magnetic field interpolator from the magnetic configuration.
 
     For stellarators, interpolates (B_R, B_phi, B_Z) in cylindrical coordinates
     (R, phi, Z) on the fundamental domain [0, pi/nfp]. For axisymmetric
     equilibria, interpolates (B_R, B_phi, B_Z) as a function of (R, Z).
     """
+    # Stellarator symmetry: B_R(-phi, -Z) = -B_R(phi, Z), B_phi and B_Z are even.
     return _build_grid_interpolator(
-        magnetic_configuration, magnetic_configuration.magnetic_field, fill=0.0
+        magnetic_configuration,
+        magnetic_configuration.magnetic_field,
+        fill=0.0,
+        mirror_sign=jnp.array([-1.0, 1.0, 1.0]),
     )
 
 
 def build_rho_interpolator(
     magnetic_configuration: MagneticConfiguration,
-) -> RegularGridInterpolator:
+) -> GridInterpolator:
     """Build rho interpolator for the given magnetic configuration.
 
     For stellarators, interpolates rho in cylindrical coordinates (R, phi, Z) on
     the fundamental domain [0, pi/nfp]. For axisymmetric equilibria, interpolates
-    rho as a function of (R, Z).
+    rho as a function of (R, Z). The interpolant is that of rho^2, which is smooth
+    through the magnetic axis.
     """
     return _build_grid_interpolator(
-        magnetic_configuration, magnetic_configuration.rho, fill=1.1
+        magnetic_configuration,
+        magnetic_configuration.rho,
+        fill=1.1,
+        mirror_sign=jnp.array(1.0),
+        square=True,
     )
 
 
@@ -587,18 +712,31 @@ def _build_grid_interpolator(
     magnetic_configuration: MagneticConfiguration,
     f: jax.Array,
     fill: float,
-) -> RegularGridInterpolator:
+    mirror_sign: jax.Array,
+    square: bool = False,
+) -> GridInterpolator:
     rphiz = magnetic_configuration.rphiz
     if magnetic_configuration.is_axisymmetric:
-        return RegularGridInterpolator(
-            lower=rphiz[0, 0, 0, ::2], upper=rphiz[-1, 0, -1, ::2], f=f[:, 0], fill=fill
+        return GridInterpolator(
+            lower=rphiz[0, 0, 0, ::2],
+            upper=rphiz[-1, 0, -1, ::2],
+            f=f[:, 0],
+            mirror_sign=mirror_sign,
+            fill=fill,
+            square=square,
         )
     if not magnetic_configuration.is_stellarator_symmetric:
         raise NotImplementedError(
             "Non stellarator-symmetric equilibria not yet supported"
         )
-    return RegularGridInterpolator(
-        lower=rphiz[0, 0, 0], upper=rphiz[-1, -1, -1], f=f, fill=fill
+    return GridInterpolator(
+        lower=rphiz[0, 0, 0],
+        upper=rphiz[-1, -1, -1],
+        f=f,
+        mirror_sign=mirror_sign,
+        fill=fill,
+        square=square,
+        stellarator_mirror=True,
     )
 
 
@@ -682,7 +820,7 @@ def build_radial_interpolators(
     magnetic_configuration: MagneticConfiguration,
     radial_profiles: RadialProfiles,
 ) -> tuple[
-    RegularGridInterpolator,
+    GridInterpolator,
     interpax.Interpolator1D,
     interpax.Interpolator1D,
 ]:

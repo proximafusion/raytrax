@@ -7,7 +7,7 @@ import interpax
 import jax
 import jaxtyping as jt
 
-from raytrax.equilibrium.interpolate import RegularGridInterpolator
+from raytrax.equilibrium.interpolate import GridInterpolator
 
 
 @jax.tree_util.register_dataclass
@@ -19,10 +19,10 @@ class Interpolators:
     pytree-compatible object passed through JIT as one argument.
     """
 
-    magnetic_field: RegularGridInterpolator
+    magnetic_field: GridInterpolator
     """Interpolator for B field. 3D (R, phi, Z) for stellarators, 2D (R, Z) for tokamaks."""
 
-    rho: RegularGridInterpolator
+    rho: GridInterpolator
     """Interpolator for rho. 3D (R, phi, Z) for stellarators, 2D (R, Z) for tokamaks."""
 
     electron_density: interpax.Interpolator1D
