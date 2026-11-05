@@ -34,11 +34,13 @@ The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathc
 
 ## Plasma Boundary
 
-If the electron density does not vanish at the plasma boundary, the ray has to be refracted at the plasma–vacuum interface. Raytrax continues the density profile beyond the last profile point with a smooth ramp to zero over $\Delta\rho = 0.02$, and adds a relaxation term to the equation for $\boldsymbol{n}$:
+If the electron density does not vanish at the plasma boundary, the ray has to be refracted at the plasma–vacuum interface. Raytrax extends the profile with a ramp to zero over $\Delta\rho = 0.02$. A shape-preserving cubic interpolant joins profile and ramp with a continuous gradient.
 
-$$\frac{d\boldsymbol{n}}{ds} = -\left|\frac{\partial \mathcal H}{\partial \boldsymbol{n}}\right|^{-1} \frac{\partial \mathcal H}{\partial \boldsymbol{r}} - \lambda\,\mathcal H \left|\frac{\partial \mathcal H}{\partial \boldsymbol{n}}\right|^{-2} \frac{\partial \mathcal H}{\partial \boldsymbol{n}}$$
+A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change of the conserved Hamiltonian, converted to an error of $|\boldsymbol{n}|$,
 
-with $\lambda = 20\,\mathrm{m}^{-1}$. Along the ray, this gives $d\mathcal H/ds = -\lambda \mathcal H$, so the ray returns to the dispersion surface $\mathcal H = 0$ within a few centimeters if an integration step skips the ramp. The term vanishes on the dispersion surface and is smooth, so the trace remains differentiable.
+$$\delta n = w\,\frac{|\Delta \mathcal H|}{2|\boldsymbol{n}|},$$
+
+with `TracerSettings.dispersion_error_weight` setting $w$ (default 30). This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
 
 ## Cold Tracing
 

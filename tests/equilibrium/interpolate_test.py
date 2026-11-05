@@ -900,6 +900,37 @@ def test_ne_interpolator_no_discontinuity_at_lcfs_with_nonzero_edge():
         )
 
 
+def test_ne_ramp_continues_the_profile_slope():
+    """Beyond the last profile point, ne falls to zero with a continuous gradient."""
+    n = 50
+    rho_profile = jnp.linspace(0.0, 1.0, n)
+    radial_profiles = RadialProfiles(
+        rho=rho_profile,
+        electron_density=0.5 + 0.5 * (1.0 - rho_profile**2),
+        electron_temperature=jnp.ones(n),
+    )
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        ne_interp = build_electron_density_profile_interpolator(radial_profiles)
+    dne = jax.grad(lambda r: ne_interp(r))
+
+    edge = 1.0
+    np.testing.assert_allclose(
+        dne(jnp.array(edge + 1e-9)), dne(jnp.array(edge - 1e-9)), rtol=1e-5
+    )
+    np.testing.assert_allclose(dne(jnp.array(edge)), -1.0, rtol=0.05)
+
+    rho_ramp = jnp.linspace(edge, edge + interpolate._VACUUM_RAMP_WIDTH, 201)
+    ne_ramp = jax.vmap(ne_interp)(rho_ramp)
+    assert jnp.all(jnp.diff(ne_ramp) <= 1e-15)
+    assert jnp.all(ne_ramp >= 0.0)
+    np.testing.assert_allclose(ne_ramp[-1], 0.0, atol=1e-15)
+    # Zero slope at the end of the ramp, so the density joins the vacuum smoothly.
+    np.testing.assert_allclose(dne(rho_ramp[-1] - 1e-9), 0.0, atol=1e-5)
+
+
 def test_ne_interpolator_taper_is_smooth_and_zero_at_lcfs():
     """Cosine taper must smoothly drive ne to zero at rho=1 for a non-zero edge profile.
 

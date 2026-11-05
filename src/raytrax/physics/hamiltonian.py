@@ -36,8 +36,8 @@ def hamiltonian(
 ]:
     r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_\mathrm{AH}^2(\boldsymbol{r}, \boldsymbol{n})$.
 
-    Rays propagate along level sets $\mathcal{H} = 0$. In vacuum
-    ($n_e < 10^{-6} \times 10^{20}\,\mathrm{m}^{-3}$) the trivial form
+    Rays propagate along level sets $\mathcal{H} = 0$. In vacuum ($n_e = 0$) the
+    trivial form
     $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used; elsewhere the cold-plasma
     Appleton-Hartree dispersion relation selects the O- or X-mode refractive index squared.
 
@@ -59,8 +59,11 @@ def hamiltonian(
     magnetic_field = magnetic_field_interpolator(position)
     rho = rho_interpolator(position)
     electron_density_1e20_per_m3 = electron_density_profile_interpolator(rho)
+    # Only at zero density, where the cold Hamiltonian is |n|^2 - 1 too, so that H is
+    # continuous across the plasma boundary. Outside the grid B is zero and the cold
+    # Hamiltonian undefined, but there rho, and hence the density, is beyond the ramp.
     H = jax.lax.cond(
-        electron_density_1e20_per_m3 < 1e-6,
+        electron_density_1e20_per_m3 <= 0.0,
         lambda: _hamiltonian_vacuum(
             refractive_index=refractive_index,
         ),

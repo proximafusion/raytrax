@@ -1,11 +1,50 @@
+import diffrax
 import interpax
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from raytrax.tracer import ray, solver
 from raytrax.tracer.buffers import Interpolators
 
 jax.config.update("jax_enable_x64", True)
+
+
+def test_dispersion_controller_preserves_smooth_flow_gradient(monkeypatch):
+    """An analytic conserved flow checks AD with the extra error term on and off."""
+    monkeypatch.setattr(
+        solver, "_hamiltonian_value", lambda y, args: jnp.sum(y[:6] ** 2) - 1
+    )
+
+    def rhs(t, y, args):
+        # Harmonic oscillator: x^2 + p^2 is conserved; tau integrates x^2.
+        return jnp.array([y[3], 0.0, 0.0, -y[0], 0.0, 0.0, y[0] ** 2])
+
+    def integral(theta, weight):
+        controller = solver._DispersionAwareController(
+            diffrax.PIDController(rtol=1e-7, atol=1e-9), weight
+        )
+        y0 = jnp.array([jnp.cos(theta), 0.0, 0.0, jnp.sin(theta), 0.0, 0.0, 0.0])
+        result = diffrax.diffeqsolve(
+            diffrax.ODETerm(rhs),
+            diffrax.Bosh3(),
+            t0=0.0,
+            t1=0.5,
+            dt0=0.1,
+            y0=y0,
+            stepsize_controller=controller,
+            max_steps=4096,
+        )
+        return result.ys[-1, -1]
+
+    theta, end = 1.2, 0.5
+    expected_value = end / 2 + (np.sin(2 * end - 2 * theta) + np.sin(2 * theta)) / 4
+    expected_gradient = (np.cos(2 * theta) - np.cos(2 * end - 2 * theta)) / 2
+    value_and_grad = jax.jit(jax.value_and_grad(integral))
+    for weight in (0.0, 30.0):
+        value, gradient = value_and_grad(theta, jnp.asarray(weight))
+        np.testing.assert_allclose(value, expected_value, rtol=2e-6)
+        np.testing.assert_allclose(gradient, expected_gradient, rtol=2e-6)
 
 
 def _mock_interpolators():
@@ -40,7 +79,7 @@ def _mock_interpolators():
     )
 
     # Electron density profile: zero everywhere so the vacuum Hamiltonian
-    # (ne < 1e-6) is used, avoiding NaN in the warm-plasma gradient at the
+    # (ne = 0) is used, avoiding NaN in the warm-plasma gradient at the
     # mock's unphysical initial refractive index N=(1,1,1)/√3.
     electron_density_interpolator = interpax.Interpolator1D(
         x=jnp.array([0.0, 1.0]),
