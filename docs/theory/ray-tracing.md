@@ -12,23 +12,21 @@ For ray tracing, we define a Hamiltonian $\mathcal H(\boldsymbol{r}, \boldsymbol
 
 $$ \mathcal H(\boldsymbol{r}, \boldsymbol{k}) = \text{Re}(\det \boldsymbol{\mathsf{D}}) = 0 $$
 
-The ray equations can then be derived from Hamilton's equations in terms of a time-like parameter $\tau$ along the ray:
+The ray equations can then be derived from Hamilton's equations in terms of a time-like parameter $t$ along the ray, the *Hamiltonian time*:
 
-$$\frac{d\boldsymbol{r}}{d\tau} = \frac{\partial \mathcal H}{\partial \boldsymbol{k}}, \quad \frac{d\boldsymbol{k}}{d\tau} = -\frac{\partial \mathcal H}{\partial \boldsymbol{r}}$$
+$$\frac{d\boldsymbol{r}}{dt} = \frac{\partial \mathcal H}{\partial \boldsymbol{k}}, \quad \frac{d\boldsymbol{k}}{dt} = -\frac{\partial \mathcal H}{\partial \boldsymbol{r}}$$
 
-Using the arc length $s$ along the ray, which satisfies
+or, with the refractive index vector $\boldsymbol{n}=\boldsymbol{k}c/\omega$,
 
-$$\frac{ds}{d\tau} = \left|\frac{d\boldsymbol{r}}{d\tau}\right|$$
+$$\frac{d\boldsymbol{r}}{dt} = \frac{\partial \mathcal H}{\partial \boldsymbol{n}}, \quad \frac{d\boldsymbol{n}}{dt} = -\frac{\partial \mathcal H}{\partial \boldsymbol{r}}.$$
 
-we can write
+Raytrax integrates these equations in $t$. The arc length $s$ along the ray is carried along as a further state variable,
 
-$$\frac{d\boldsymbol{r}}{ds} = \left|\frac{\partial \mathcal H}{\partial \boldsymbol{k}}\right|^{-1} \frac{\partial \mathcal H}{\partial \boldsymbol{k}}, \quad \frac{d\boldsymbol{k}}{ds} = -\left|\frac{\partial \mathcal H}{\partial \boldsymbol{k}}\right|^{-1} \frac{\partial \mathcal H}{\partial \boldsymbol{r}}$$
+$$\frac{ds}{dt} = \left|\frac{\partial \mathcal H}{\partial \boldsymbol{n}}\right|,$$
 
-or, equivalently,
+together with the optical depth, $d\tau/dt = \alpha\,ds/dt$ (see [absorption](absorption.md#optical-depth)). The arc length remains the coordinate of all output profiles and of `TracerSettings.max_arc_length`, but it is left out of the error norm of the step-size controller: it is an output, and its error does not feed back into the ray.
 
-$$\frac{d\boldsymbol{r}}{ds} = \left|\frac{\partial \mathcal H}{\partial \boldsymbol{n}}\right|^{-1} \frac{\partial \mathcal H}{\partial \boldsymbol{n}}, \quad \frac{d\boldsymbol{n}}{ds} = -\left|\frac{\partial \mathcal H}{\partial \boldsymbol{n}}\right|^{-1} \frac{\partial \mathcal H}{\partial \boldsymbol{r}}$$
-
-where $\boldsymbol{n}=\boldsymbol{k}c/\omega$.
+The equations are deliberately not divided by $|\partial \mathcal H/\partial \boldsymbol{n}|$ to integrate in $s$ directly, because this quantity vanishes where a ray is reflected. At the O-mode cutoff $X = 1$ the Stix parameter $P$ vanishes and $\mathcal H$ carries a factor $n_\perp^2$ (see [below](#cold-tracing)), so the group velocity $\partial \mathcal H/\partial \boldsymbol{n}$ is zero on the whole cutoff, at oblique incidence too: the ray comes to rest and turns back like a ball thrown upwards. In the arc length the right-hand side is $0/0$ there, the unit tangent flips by 180° and the path has a cusp. In Hamiltonian time the reflection is a regular point of the flow, with $n_\perp \propto -t$ and the distance to the cutoff $\propto t^2$.
 
 The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathcal H/\partial \boldsymbol{n}$ are computed in Raytrax using automatic differentiation in the function `hamiltonian_value_and_gradients`, starting from a scalar Hamiltonian function.
 
@@ -36,11 +34,11 @@ The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathc
 
 If the electron density does not vanish at the plasma boundary, the ray has to be refracted at the plasma–vacuum interface. Raytrax extends the profile with a ramp to zero over $\Delta\rho = 0.02$. A shape-preserving cubic interpolant joins profile and ramp with a continuous gradient.
 
-A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change of the conserved Hamiltonian, converted to an error of $|\boldsymbol{n}|$,
+A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change $\Delta \mathcal H$ of the conserved Hamiltonian over each step, expressed as the relative frequency mismatch it amounts to,
 
-$$\delta n = w\,\frac{|\Delta \mathcal H|}{2|\boldsymbol{n}|},$$
+$$\frac{\delta\omega}{\omega} = \frac{\Delta \mathcal H}{\omega\,\partial \mathcal H/\partial\omega\,|_{\boldsymbol{k}}}, \qquad \omega\,\frac{\partial \mathcal H}{\partial\omega}\Big|_{\boldsymbol{k}} = \omega\,\frac{\partial \mathcal H}{\partial\omega}\Big|_{\boldsymbol{n}} - \boldsymbol{n}\cdot\frac{\partial \mathcal H}{\partial \boldsymbol{n}},$$
 
-with `TracerSettings.dispersion_error_weight` setting $w$ (default 30). This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
+the relative change of frequency that would put the wave back on the dispersion surface. To first order it is the same for $\mathcal H$ and for $f\,\mathcal H$ with any smooth non-zero $f$, so it measures the ray and not the form of $\mathcal H$, and it stays finite at a reflection, where $\partial \mathcal H/\partial \boldsymbol{n}$ vanishes but $\partial \mathcal H/\partial\omega$ does not. The controller adds $w\,|\delta\omega/\omega|$ to its error estimate, with `TracerSettings.dispersion_error_weight` setting $w$ (default 30); $\partial \mathcal H/\partial\omega$ comes out of the same reverse-mode pass as $\partial \mathcal H/\partial \boldsymbol{n}$. This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
 
 ## Cold Tracing
 
@@ -76,15 +74,39 @@ Substituting $\boldsymbol{\varepsilon}$ into $\boldsymbol{\mathsf{D}}$ and enfor
 
 $$n_{AH}^2 = 1 - \frac{X}{1 - \frac{Y^2 \sin^2 \theta}{2(1-X)} \pm \sqrt{\left(\frac{Y^2 \sin^2 \theta}{2(1-X)}\right)^2 + Y^2 \cos^2 \theta}}$$
 
-The $\pm$ sign dictates the two characteristic wave modes of the magnetized plasma: the Ordinary (O) wave (−) and the Extraordinary (X) wave (+).
+The $\pm$ sign selects the two characteristic wave modes of the magnetized plasma: the Ordinary (O) wave ($+$) and the Extraordinary (X) wave ($-$).
 
-Rather than solving for the roots of the dispersion relation directly, Raytrax uses a Hamiltonian formulation based on the implicit dispersion relation. The code implements the cold plasma Hamiltonian as:
+Raytrax does not use this angle form as its Hamiltonian. In the variables $(X, \theta)$ the whole O-mode cutoff is a single point: on the segment
 
-$$ \mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = |\boldsymbol{n}|^2 - n_{AH}^2(\omega, \theta(\boldsymbol{n}, \boldsymbol{r}), \boldsymbol{r}) $$
+$$X = 1, \qquad n_\perp = 0, \qquad n_\parallel^2 < \frac{Y}{1+Y}$$
 
-where $n_{AH}^2$ is the Appleton-Hartree refractive index squared calculated above. This form ensures that $\mathcal{H}=0$ is equivalent to satisfying the dispersion relation. The gradients of this Hamiltonian with respect to position and wave vector drive the ray tracing equations.
+the dispersion relation holds for every $n_\parallel$ (at $X = 1$ the Stix parameter $P$ vanishes and $\det \boldsymbol{\mathsf{D}}$ acquires a factor $n_\perp^2$: the plasma oscillation $\omega = \omega_p$), and $\theta = \arctan(n_\perp/n_\parallel) = 0$ on all of it. The radicand of the Appleton-Hartree formula vanishes exactly at $X = 1$, $\theta = 0$, so the square root is a cone there and the derivatives of $n_{AH}^2$ have no limit. Every oblique O-mode reflection passes through this point, where the stages of a Runge-Kutta step evaluate $\mathcal H$ on different sheets of the cone and the error estimate of the step is meaningless.
 
-The appropriate sign in the Appleton-Hartree formula is determined by the polarization of the wave mode being traced. Raytrax allows users to specify which mode (O or X) they wish to trace, ensuring that the correct branch of the dispersion relation is used in the Hamiltonian.
+Instead, the dispersion relation is solved for the perpendicular refractive index at the ray's own $n_\parallel^2 = (\boldsymbol{n} \cdot \boldsymbol{b})^2$, with $\boldsymbol{b} = \boldsymbol{B}_0/|\boldsymbol{B}_0|$. With the Stix parameters multiplied by $1-Y$, $1+Y$ and $1-Y^2$, which removes their poles at $Y = 1$,
+
+$$\tilde R = 1 - Y - X, \qquad \tilde L = 1 + Y - X, \qquad \tilde S = 1 - Y^2 - X, \qquad P = 1 - X,$$
+
+$\det \boldsymbol{\mathsf{D}} = 0$ is a quadratic in $N_\perp^2$,
+
+$$\tilde S\,N_\perp^4 + b\,N_\perp^2 + c = 0, \qquad b = \big(\tilde S + (1-Y^2)P\big)\,n_\parallel^2 - \tilde R \tilde L - P \tilde S, \qquad c = P\,\big((1-Y)\,n_\parallel^2 - \tilde R\big)\big((1+Y)\,n_\parallel^2 - \tilde L\big),$$
+
+whose discriminant factorises as $b^2 - 4\tilde S c = X^2 Y^2 \big[Y^2 (1-n_\parallel^2)^2 + 4 n_\parallel^2 (1-X)\big]$. Its roots are
+
+$$N_\perp^2(n_\parallel^2, X, Y) = \frac{-b \pm X Y \sqrt{Y^2 (1-n_\parallel^2)^2 + 4 n_\parallel^2 (1-X)}}{2 \tilde S},$$
+
+with $+$ the O mode and $-$ the X mode for every $Y$ (`refractive_index_perp_squared_cold`). The discriminant is evaluated in its factorised form, which keeps its digits at low density, and it is positive for every $X \le 1$: the root has no branch point anywhere below the cutoff. It depends on $n_\parallel$ only through $n_\parallel^2$, so parallel propagation needs no special treatment. The cold plasma Hamiltonian is then
+
+$$ \mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = n_\perp^2 - N_\perp^2\big(n_\parallel^2, X(\boldsymbol{r}), Y(\boldsymbol{r})\big), \qquad n_\perp^2 = \boldsymbol{n}\cdot\boldsymbol{n} - n_\parallel^2, $$
+
+so that $\mathcal{H} = 0$ is equivalent to the dispersion relation of the selected mode, which the user specifies as O or X. Next to the O-mode cutoff the root is
+
+$$N_\perp^2 \simeq \kappa\,(1 - X), \qquad \kappa = \frac{\big((1-Y)\,n_\parallel^2 + Y\big)\big(Y - (1+Y)\,n_\parallel^2\big)}{Y^2\,(1 - n_\parallel^2)} > 0 \quad \text{for } n_\parallel^2 < \frac{Y}{1+Y},$$
+
+a regular zero: the ray turns there, and its group velocity vanishes as it does. $\kappa$ vanishes at $n_\parallel^2 = Y/(1+Y)$, the O-X point where the two roots touch; see [limitations](../limitations.md#ray-tracing).
+
+![The O-mode root over (X, θ) and over (X, n∥), with an oblique O-mode reflection drawn on both](../assets/cutoff_maps.png)
+
+*An oblique O-mode reflection (140 GHz, launched 20° off the major radius in an analytic tokamak) on the two maps, both at the $Y$ of the turning point. Left: the Appleton-Hartree root over $(X, \theta)$; every contour between 0 and $Y/(1+Y)$ ends at the conical point $X = 1$, $\theta = 0$, which the ray has to run into to turn around. Right: the fixed-$n_\parallel$ root over $(X, n_\parallel)$; the contours are a regular family, the zero line is $X = 1$ up to the O-X point, and the ray turns at a regular point of it.*
 
 
 !!! info

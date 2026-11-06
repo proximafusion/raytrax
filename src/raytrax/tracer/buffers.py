@@ -46,7 +46,8 @@ class TraceBuffers:
     """
 
     arc_length: jt.Float[jax.Array, " nsteps"]
-    ode_state: jt.Float[jax.Array, "nsteps 7"]
+    ode_state: jt.Float[jax.Array, "nsteps 8"]
+    """(position, refractive index, optical depth, arc length) at each step."""
     magnetic_field: jt.Float[jax.Array, "nsteps 3"]
     normalized_effective_radius: jt.Float[jax.Array, " nsteps"]
     electron_density: jt.Float[jax.Array, " nsteps"]

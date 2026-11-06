@@ -81,6 +81,75 @@ def _dispersion_appleton_hartee(
     return N_squared
 
 
+def refractive_index_perp_squared_cold(
+    refractive_index_para_squared: ScalarFloat,
+    X: ScalarFloat,
+    Y: ScalarFloat,
+    mode: Literal["X", "O"],
+) -> ScalarFloat:
+    r"""Computes $N_\perp^2$ of a cold-plasma mode at given $N_\parallel^2$.
+
+    At fixed $N_\parallel$ the cold dispersion relation is a quadratic in
+    $N_\perp^2$. With $P = 1 - X$ and $R$, $L$, $S$ multiplied by $1 - Y$, $1 + Y$
+    and $1 - Y^2$ to clear their poles at $Y = 1$,
+
+    $$\tilde R = 1 - Y - X, \quad \tilde L = 1 + Y - X, \quad \tilde S = 1 - Y^2 - X,$$
+
+    it reads $\tilde S N_\perp^4 + b N_\perp^2 + c = 0$ with
+
+    $$b = (\tilde S + (1 - Y^2) P) N_\parallel^2 - \tilde R \tilde L - P \tilde S,
+    \quad c = P \left((1 - Y) N_\parallel^2 - \tilde R\right)
+    \left((1 + Y) N_\parallel^2 - \tilde L\right).$$
+
+    The discriminant factorises as
+
+    $$b^2 - 4 \tilde S c = X^2 Y^2 \left(Y^2 (1 - N_\parallel^2)^2
+    + 4 N_\parallel^2 (1 - X)\right),$$
+
+    which is evaluated in this form: the difference $b^2 - 4 \tilde S c$ loses all
+    digits at low density, where both terms are of order one and the discriminant
+    of order $X^2$. The root with the $+$ sign of the square root is the O-mode,
+    the other one the X-mode, for every $Y$: the ordering of the roots and the sign
+    of $\tilde S$ both flip at $Y = 1$. Unlike the Appleton-Hartree formula, which
+    parametrises the modes by the angle to the magnetic field, this form has no
+    branch point at the O-mode cutoff $X = 1$, $N_\perp = 0$, where every reflected
+    O-mode ray passes. The discriminant is non-negative for $X \le 1$; for $X > 1$
+    there are regions of $N_\parallel$ where both roots are complex, no real wave
+    exists, and the result is NaN.
+
+    Args:
+        refractive_index_para_squared: $N_\parallel^2$, squared refractive index
+            along the magnetic field.
+        X: (ω_pe / ω)^2, normalized plasma frequency squared.
+        Y: ω_ce / ω, normalized cyclotron frequency.
+        mode: 'X' or 'O' for extraordinary or ordinary mode.
+
+    Returns:
+        $N_\perp^2$ of the mode. Negative where the mode is evanescent.
+    """
+    P = 1 - X
+    one_minus_y2 = (1 - Y) * (1 + Y)  # exact to rounding also close to Y = 1
+    R = 1 - Y - X
+    L = 1 + Y - X
+    S = one_minus_y2 - X
+    n_para2 = refractive_index_para_squared
+    a = S
+    b = (S + one_minus_y2 * P) * n_para2 - R * L - P * S
+    c = P * ((1 - Y) * n_para2 - R) * ((1 + Y) * n_para2 - L)
+    sign = 1.0 if mode == "O" else -1.0
+    # sqrt(b^2 - 4 a c), with X, Y >= 0
+    root = X * Y * jnp.sqrt(Y**2 * (1 - n_para2) ** 2 + 4 * n_para2 * P)
+    # The root (-b + sign * root) / (2 a) equals 2 c / (-b - sign * root). The first
+    # form cancels where sign * b > 0, the second where sign * b < 0 (and where
+    # b = root = 0, in vacuum). Use the one in which nothing cancels. The two
+    # jnp.where keep the derivative of the unused form from turning into NaN.
+    use_second = sign * b >= 0
+    numerator = jnp.where(use_second, 2 * c, -b + sign * root)
+    denominator = jnp.where(use_second, -b - sign * root, 2 * a)
+    denominator = jnp.where(denominator == 0, 1.0, denominator)
+    return numerator / denominator
+
+
 def dispersion_tensor_stix(
     refractive_index_perp: ScalarFloat,
     refractive_index_para: ScalarFloat,

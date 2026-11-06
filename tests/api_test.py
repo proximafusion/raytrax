@@ -238,6 +238,84 @@ def test_finite_edge_density_matches_converged_trace(tokamak_magnetic_configurat
     np.testing.assert_allclose(r_n_phi, r_n_phi[0], rtol=0, atol=1e-4)
 
 
+@pytest.mark.parametrize(
+    "mode, angle_deg", [("O", 0.0), ("O", 25.0), ("X", 0.0), ("X", 25.0)]
+)
+def test_ray_is_reflected_at_its_cutoff(
+    tokamak_magnetic_configuration, mode, angle_deg
+):
+    """An O-mode ray reaching the O cutoff X = 1 and an X-mode ray reaching the R
+    cutoff X = 1 - Y turn around and leave the plasma on the side they entered, at
+    default settings as well as converged ones, perpendicular and oblique to B.
+
+    140 GHz in the analytic tokamak: the cutoffs lie well outside the second-harmonic
+    resonance at R = 3 m, so nothing is absorbed.
+    """
+    R0 = 3.0
+    rho = jnp.linspace(0, 1, 40)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.3 + 3.2 * (1 - rho**2),
+        electron_temperature=1.0 * jnp.ones_like(rho),
+    )
+    angle = np.deg2rad(angle_deg)
+    beam = Beam(
+        position=jnp.array([R0 + 1.3, 0.0, 0.0]),  # in vacuum, rho = 1.3
+        # B is toroidal: the tilt out of the R direction towards phi sets N_par.
+        direction=jnp.array([-np.cos(angle), np.sin(angle), 0.0]),
+        frequency=140e9,
+        mode=mode,
+        power=1e6,
+    )
+    converged = trace(
+        tokamak_magnetic_configuration,
+        profiles,
+        beam,
+        settings=TracerSettings(
+            relative_tolerance=1e-7,
+            absolute_tolerance=1e-9,
+            max_step_size=0.002,
+            max_steps=65536,
+        ),
+    )
+    result = trace(tokamak_magnetic_configuration, profiles, beam)
+    for traced in (result, converged):
+        assert not traced.incomplete
+        bp = traced.beam_profile
+        position = np.asarray(bp.position)
+        # Reflected: the ray ends on the low-field side where it started.
+        assert np.hypot(position[-1, 0], position[-1, 1]) > R0 + 1.0
+        X = (
+            np.asarray(quantities.electron_plasma_frequency(bp.electron_density))
+            / beam.frequency
+        ) ** 2
+        Y = (
+            np.asarray(
+                quantities.electron_cyclotron_frequency(
+                    np.linalg.norm(bp.magnetic_field, axis=1)
+                )
+            )
+            / beam.frequency
+        )
+        n_vec = np.asarray(bp.refractive_index)
+        b_hat = np.asarray(bp.magnetic_field)
+        b_hat = b_hat / np.linalg.norm(b_hat, axis=1, keepdims=True)
+        n_para2 = np.sum(n_vec * b_hat, axis=1) ** 2
+        # At oblique incidence the X-mode turns around where (1 - Y) N_par^2 = R, i.e.
+        # below the perpendicular R cutoff X = 1 - Y.
+        cutoff = 1.0 if mode == "O" else (1.0 - Y) * (1.0 - n_para2)
+        # The ray gets close to its cutoff but does not cross it.
+        assert np.max(X - cutoff) > -0.05
+        np.testing.assert_array_less(X - cutoff, 2e-3)
+        r_n_phi = position[:, 0] * n_vec[:, 1] - position[:, 1] * n_vec[:, 0]
+        np.testing.assert_allclose(r_n_phi, r_n_phi[0], rtol=0, atol=1e-4)
+    end_distance = np.linalg.norm(
+        np.asarray(result.beam_profile.position[-1])
+        - np.asarray(converged.beam_profile.position[-1])
+    )
+    assert end_distance < 1e-3
+
+
 def _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration):
     """Shared setup for TracerSettings tests using the analytic tokamak fixture."""
     R0 = 3.0
@@ -356,7 +434,7 @@ def test_ray_leaving_the_plasma_stops_at_the_exit_condition(w7x_wout):
 def test_tracer_settings_max_arc_length_limits_trajectory(
     tokamak_magnetic_configuration,
 ):
-    """A short max_arc_length produces a shorter trajectory than the default."""
+    """A short max_arc_length stops the ray at that length and flags it incomplete."""
     beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
 
     result_default = trace(tokamak_magnetic_configuration, profiles, beam)
@@ -373,6 +451,9 @@ def test_tracer_settings_max_arc_length_limits_trajectory(
     default_length = float(result_default.beam_profile.arc_length[-1])
     short_length = float(result_short.beam_profile.arc_length[-1])
     assert short_length < default_length
+    # The event root find ends the ray at the cap itself, not at the end of the
+    # step that crossed it.
+    np.testing.assert_allclose(short_length, 0.5, rtol=0, atol=1e-6)
 
 
 def test_deposition_stats():
