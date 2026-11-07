@@ -307,9 +307,11 @@ _event = diffrax.Event(
 )
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
-# Third order on purpose: the linearly interpolated equilibrium makes the right-hand
-# side only piecewise smooth, so higher-order tableaus lose their order and
-# Bosh3 reaches a given accuracy with the fewest right-hand-side evaluations.
+# Third order on purpose: the right-hand side contains the gradients of the
+# interpolated B and rho, whose derivatives jump at the grid cell faces, so it is
+# only piecewise smooth. Higher-order tableaus lose their order on such a right-hand
+# side, and Bosh3 reaches a given accuracy with the fewest right-hand-side
+# evaluations.
 _solver = diffrax.Bosh3()
 
 
