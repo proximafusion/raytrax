@@ -31,7 +31,7 @@ The five float fields are ordinary JAX values (not static compile-time constants
 
 **`relative_tolerance` / `absolute_tolerance`** control the error estimate the PID controller tries to satisfy per step. Tightening them (e.g. `rtol=1e-6`) improves accuracy but increases the number of steps. The defaults are sufficient for power deposition profiles; gradient-based optimisation may benefit from tighter tolerances.
 
-**`dispersion_error_weight`** adds the change of the Hamiltonian to the step-size error estimate, helping detect steps that skip the thin edge-density ramp (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). Larger values tighten this conservation check, usually requiring more steps. Zero disables the extra error term.
+**`dispersion_error_weight`** adds the change of the Hamiltonian, measured as the relative frequency mismatch it amounts to, to the step-size error estimate, helping detect steps that skip the thin edge-density ramp (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). Larger values tighten this conservation check, usually requiring more steps. Zero disables the extra error term.
 
 **`max_arc_length`** is a safety cutoff. Rays that haven't terminated (by leaving the plasma or being absorbed) are stopped at this arc length. 20 m is generous for any current fusion device; you would only need to lower it to speed up debugging of misconfigured inputs, or raise it for very large devices.
 

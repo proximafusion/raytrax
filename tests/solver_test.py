@@ -1,3 +1,5 @@
+import dataclasses
+
 import diffrax
 import interpax
 import jax
@@ -13,7 +15,11 @@ jax.config.update("jax_enable_x64", True)
 def test_dispersion_controller_preserves_smooth_flow_gradient(monkeypatch):
     """An analytic conserved flow checks AD with the extra error term on and off."""
     monkeypatch.setattr(
-        solver, "_hamiltonian_value", lambda y, args: jnp.sum(y[:6] ** 2) - 1
+        solver,
+        "_hamiltonian_scale",
+        lambda y, args: solver._HamiltonianScale(
+            value=jnp.sum(y[:6] ** 2) - 1, frequency_scale=jnp.asarray(-2.0)
+        ),
     )
 
     def rhs(t, y, args):
@@ -100,6 +106,47 @@ def _mock_interpolators():
         electron_density=electron_density_interpolator,
         electron_temperature=electron_temperature_interpolator,
     )
+
+
+def test_frequency_scale_is_the_derivative_of_h_at_fixed_wave_vector():
+    r"""$\omega\,\partial H/\partial\omega$ at fixed $\boldsymbol{k}$, the scale of the
+    frequency mismatch in the step control.
+
+    In vacuum $H = |\boldsymbol{N}|^2 - 1$ with $\boldsymbol{N} = c\boldsymbol{k}/\omega$,
+    so $\omega\,\partial H/\partial\omega = -2|\boldsymbol{N}|^2$. In a plasma it is
+    compared with a central difference of $H$ at fixed $\boldsymbol{k}$.
+    """
+    setting = ray.RaySetting(frequency=jnp.array(238e9), mode="O")
+    vacuum = _mock_interpolators()
+    plasma = dataclasses.replace(
+        vacuum,
+        electron_density=interpax.Interpolator1D(
+            x=jnp.array([0.0, 1.0]), f=jnp.array([0.3, 0.3]), method="linear"
+        ),
+    )
+    y = jnp.array([1.0, 0.0, 0.0, 0.3, 0.5, 0.6, 0.0])
+    n2 = float(jnp.sum(y[3:6] ** 2))
+
+    scale = solver._hamiltonian_scale(y, (setting, vacuum, 5, None))
+    np.testing.assert_allclose(scale.value, n2 - 1, rtol=1e-12)
+    np.testing.assert_allclose(scale.frequency_scale, -2 * n2, rtol=1e-12)
+
+    def h_at_fixed_k(frequency):
+        shifted = ray.RaySetting(frequency=frequency, mode="O")
+        y_shifted = y.at[3:6].set(y[3:6] * setting.frequency / frequency)
+        return solver._hamiltonian_scale(y_shifted, (shifted, plasma, 5, None)).value
+
+    step = 1e-5 * setting.frequency
+    expected = (
+        setting.frequency
+        * (
+            h_at_fixed_k(setting.frequency + step)
+            - h_at_fixed_k(setting.frequency - step)
+        )
+        / (2 * step)
+    )
+    scale = solver._hamiltonian_scale(y, (setting, plasma, 5, None))
+    np.testing.assert_allclose(scale.frequency_scale, expected, rtol=1e-7)
 
 
 def test_ray_tracing():
