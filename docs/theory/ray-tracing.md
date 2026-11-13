@@ -36,11 +36,11 @@ The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathc
 
 If the electron density does not vanish at the plasma boundary, the ray has to be refracted at the plasma–vacuum interface. Raytrax extends the profile with a ramp to zero over $\Delta\rho = 0.02$. A shape-preserving cubic interpolant joins profile and ramp with a continuous gradient.
 
-A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change of the conserved Hamiltonian, converted to an error of $|\boldsymbol{n}|$,
+A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change of the conserved Hamiltonian over each step, converted to the relative frequency mismatch it amounts to,
 
-$$\delta n = w\,\frac{|\Delta \mathcal H|}{2|\boldsymbol{n}|},$$
+$$\frac{\delta\omega}{\omega} = w\,\frac{|\Delta \mathcal H|}{\left|\omega\,\partial \mathcal H/\partial\omega\right|_{\boldsymbol{k}}},$$
 
-with `TracerSettings.dispersion_error_weight` setting $w$ (default 30). This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
+that is, the relative change of frequency that would put the wave back on the dispersion surface. The derivative is taken at fixed wave vector $\boldsymbol{k} = \omega\boldsymbol{n}/c$. The measure does not depend on how $\mathcal H$ is written, and in vacuum it equals the change of $|\boldsymbol{n}|$. `TracerSettings.dispersion_error_weight` sets $w$ (default 30). This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
 
 ## Cold Tracing
 

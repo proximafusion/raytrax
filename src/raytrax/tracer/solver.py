@@ -201,31 +201,54 @@ def _right_hand_side(
     return jnp.concatenate([dr_ds, dn_ds, jnp.array([dtau_ds])])
 
 
-def _hamiltonian_value(
+class _HamiltonianScale(NamedTuple):
+    r"""$H$ at an ODE state and the scale that converts it to a frequency mismatch."""
+
+    value: jt.Float[jax.Array, ""]
+    r"""$H$."""
+    frequency_scale: jt.Float[jax.Array, ""]
+    r"""$\omega\,\partial H/\partial\omega$ at fixed wave vector. `value / frequency_scale`
+    is the relative frequency mismatch $\delta\omega/\omega$ by which the wave is off
+    the dispersion surface."""
+
+
+def _hamiltonian_scale(
     y: jt.Float[jax.Array, " n "],
     args: tuple,
-) -> jt.Float[jax.Array, ""]:
-    """Evaluate the Hamiltonian H at an ODE state."""
+) -> _HamiltonianScale:
+    r"""Evaluate $H$ and $\omega\,\partial H/\partial\omega$ at fixed wave vector."""
     setting, interpolators, nfp, _ = args
-    return hamiltonian.hamiltonian(
-        y[:3],
-        y[3:6],
-        lambda pos: _eval_magnetic_field(pos, interpolators, nfp),
-        lambda pos: _eval_rho(pos, interpolators, nfp),
-        interpolators.electron_density,
-        setting.frequency,
-        setting.mode,
-    )[0]
+    frequency = jnp.asarray(setting.frequency, dtype=float)
+
+    def h(refractive_index, frequency):
+        return hamiltonian.hamiltonian(
+            y[:3],
+            refractive_index,
+            lambda pos: _eval_magnetic_field(pos, interpolators, nfp),
+            lambda pos: _eval_rho(pos, interpolators, nfp),
+            interpolators.electron_density,
+            frequency,
+            setting.mode,
+        )[0]
+
+    value, (gradient_n, dh_dfrequency) = jax.value_and_grad(h, argnums=(0, 1))(
+        y[3:6], frequency
+    )
+    # N = c k / ω: at fixed k, N scales with 1 / ω as well.
+    frequency_scale = frequency * dh_dfrequency - jnp.dot(y[3:6], gradient_n)
+    return _HamiltonianScale(value, frequency_scale)
 
 
 class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
-    """PID control on an error estimate that also includes the change of H.
+    r"""PID control on an error estimate that also includes the change of $H$.
 
-    H is conserved along exact rays. A step that jumps over a thin layer, such as the
+    $H$ is conserved along exact rays. A step that jumps over a thin layer, such as the
     density ramp at the plasma edge, puts no Runge-Kutta stage inside it, so the
-    embedded error estimate misses the layer while H changes. The change of H over the
-    step, converted to an error of |N| as weight * |ΔH| / (2 |N|), is added to the
-    error of N.
+    embedded error estimate misses the layer while $H$ changes. The change of $H$ over
+    the step is converted to the relative frequency mismatch
+    $|\Delta H| / |\omega\,\partial H/\partial\omega|$ it amounts to, which does not
+    depend on how $H$ is written, weighted and added to the error of $\boldsymbol{N}$.
+    In vacuum it equals the change of $|\boldsymbol{N}|$.
     """
 
     pid: diffrax.PIDController
@@ -250,32 +273,33 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
             terms, t0, t1, y0, dt0, args, func, error_order
         )
         # H at the start of the next step; reused until a step is accepted.
-        return t1_next, (pid_state, _hamiltonian_value(y0, args))
+        return t1_next, (pid_state, _hamiltonian_scale(y0, args).value)
 
     def adapt_step_size(
         self, t0, t1, y0, y1_candidate, args, y_error, error_order, controller_state
     ):
         assert y_error is not None  # Bosh3 provides an error estimate
         pid_state, h0 = controller_state
-        h1 = _hamiltonian_value(y1_candidate, args)
-        n = jnp.linalg.norm(y0[3:6])
-        n_error = self.weight * jnp.abs(h1 - h0) / (2 * n)
+        scale = _hamiltonian_scale(y1_candidate, args)
+        frequency_error = (
+            self.weight * jnp.abs(scale.value - h0) / jnp.abs(scale.frequency_scale)
+        )
         # The PID scales each component by its own tolerance. Rescale so that the
-        # added error is measured against the tolerance of |N|, whatever the direction
-        # of N, and add it to the first component.
-        tolerance_n = self.pid.atol + self.pid.rtol * n
+        # added relative error is measured against the tolerance of a quantity of
+        # order one, and add it to the first component of N.
+        tolerance_unit = self.pid.atol + self.pid.rtol
         tolerance_0 = self.pid.atol + self.pid.rtol * jnp.maximum(
             jnp.abs(y0[3]), jnp.abs(y1_candidate[3])
         )
         y_error = y_error.at[3].set(
-            jnp.hypot(y_error[3], n_error * tolerance_0 / tolerance_n)
+            jnp.hypot(y_error[3], frequency_error * tolerance_0 / tolerance_unit)
         )
         keep_step, t0_next, t1_next, made_jump, pid_state, result = (
             self.pid.adapt_step_size(
                 t0, t1, y0, y1_candidate, args, y_error, error_order, pid_state
             )
         )
-        h0 = jnp.where(keep_step, h1, h0)
+        h0 = jnp.where(keep_step, scale.value, h0)
         return keep_step, t0_next, t1_next, made_jump, (pid_state, h0), result
 
 
