@@ -18,12 +18,11 @@ def cold_dielectric_tensor(
 ) -> jt.Complex[jax.Array, "3 3"]:
     """Returns the cold plasma dielectric tensor in Stix coordinates.
 
-    Uses the Krivenski-Orefice (KO) electron-sign convention
-    Y_e = ω_ce/ω = −|ω_ce|/ω < 0, matching the sign used internally by
-    :func:`weakly_relativistic_dielectric_tensor`.  This gives ε[0,1] = +iD
-    (where D = (R−L)/2; note that in this KO convention R = L_Stix, L = R_Stix,
-    so D = −D_Stix), ensuring both functions produce identical off-diagonal
-    signs in the T → 0 limit.
+    The cyclotron frequency carries the electron's sign, Y_e = ω_ce/ω = −|ω_ce|/ω < 0,
+    as in Stix and as used internally by :func:`weakly_relativistic_dielectric_tensor`.
+    R, L, S, D and P are then Stix's, and the tensor is Stix's
+    [[S, −iD, 0], [iD, S, 0], [0, 0, P]] with D = (R − L)/2, so that both functions
+    have the same off-diagonal signs in the T → 0 limit.
 
     Args:
         frequency: Wave frequency in Hz
@@ -37,10 +36,10 @@ def cold_dielectric_tensor(
     X = (plasma_frequency / frequency) ** 2
     Y = -cyclotron_frequency / frequency  # electron sign convention: Y_e < 0
 
-    R = 1 - X / (1 + Y)  # = L_Stix
-    L = 1 - X / (1 - Y)  # = R_Stix
+    R = 1 - X / (1 + Y)  # = R_Stix, since Y < 0
+    L = 1 - X / (1 - Y)  # = L_Stix
     S = 0.5 * (R + L)  # same as Stix S
-    D = 0.5 * (R - L)  # = -D_Stix
+    D = 0.5 * (R - L)  # = D_Stix
     P = 1 - X
 
     return jnp.array([[S, -1j * D, 0], [1j * D, S, 0], [0, 0, P]], dtype=jnp.complex128)
