@@ -167,12 +167,6 @@ It is implemented in [`anti_hermitian_dielectric_form`][raytrax.physics.absorpti
 
 The power flux vector $\boldsymbol{F}$ in the denominator of the absorption coefficient is evaluated with the cold dielectric tensor, and the polarization vector inside the gradient is computed from the cold tensor as well. Differentiating the weakly relativistic tensor with respect to $\boldsymbol{N}$ near a cyclotron harmonic leads to resonant singularities, which the cold tensor avoids. The thermal corrections to $\boldsymbol{F}$ are of order $v_\text{th}/c$. This approximation is least accurate at the fundamental harmonic, in particular for X mode, where the thermal corrections to the Hermitian part of the dielectric tensor are largest.
 
-The cold $D = \boldsymbol{\varepsilon}_r - N^2 I + \boldsymbol{N}\boldsymbol{N}$ is Hermitian and $D\hat{\boldsymbol{e}} = 0$ on the dispersion surface, so the derivative of the polarization does not contribute to $\boldsymbol{F} = -\tfrac{1}{2}\,\partial_{\boldsymbol{N}}(\hat{\boldsymbol{e}}^* D\,\hat{\boldsymbol{e}})$. With $|\hat{\boldsymbol{e}}| = 1$ this leaves
-
-$$\boldsymbol{F} = \boldsymbol{N} - \mathrm{Re}\big(\hat{\boldsymbol{e}}^*\,(\boldsymbol{N}\cdot\hat{\boldsymbol{e}})\big),$$
-
-which is evaluated directly instead of differentiating through the polarization.
-
 It is implemented in [`cold_power_flux_vector_stix`][raytrax.physics.power_flux.cold_power_flux_vector_stix].
 
 ## Summary of Plasma Models
