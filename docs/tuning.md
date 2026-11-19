@@ -37,6 +37,10 @@ The five float fields are ordinary JAX values (not static compile-time constants
 
 **`max_steps`** is the step budget of the ODE solver and sizes the output buffers (`max_steps + 1` entries per trajectory quantity with `trim=False`). If a ray needs more steps, typically because of a small `max_step_size` or tight tolerances, the trace stops early: `TraceResult.incomplete` is set and, with `trim=True`, `trace` emits a `RuntimeWarning` naming the cause. The absorbed power of such a trace is underestimated, so raise `max_steps` until the flag is no longer set. Reaching `max_arc_length` sets the same flag.
 
+### Differentiating a Trace
+
+[`trace`][raytrax.api.trace] is differentiable with `trim=False`, e.g. with `jax.grad` or `jax.vjp`. The derivative is that of the discrete solve with the step times held fixed: the step sizes are a choice of the integrator, and their derivative would only be that of the discretisation error. The derivative therefore approximates the exact one to about the accuracy of the solve itself; tighten the tolerances if it needs to be more accurate than the trajectory.
+
 ## JAX Compilation
 
 Raytrax is built on [JAX](https://docs.jax.dev), which compiles Python functions to optimised machine code the first time they are called. On subsequent calls with inputs of the same types and shapes, the cached compiled function is reused — making repeated calls (e.g. inside an optimisation loop) very fast.
