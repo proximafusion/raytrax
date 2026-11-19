@@ -324,7 +324,7 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
             error_order,
         )
         # H and ∂H/∂N at the start of the next step; reused until a step is accepted.
-        return t1_next, (pid_state, scale)
+        return jax.lax.stop_gradient(t1_next), (pid_state, scale)
 
     def adapt_step_size(
         self, t0, t1, y0, y1_candidate, args, y_error, error_order, controller_state
@@ -367,6 +367,15 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
         scale_0 = jax.tree_util.tree_map(
             lambda new, old: jnp.where(keep_step, new, old), scale, scale_0
         )
+        # The step times are a choice of the integrator, not a function of the
+        # inputs: differentiating them only differentiates the discretisation error.
+        # diffrax's PID controller stops the gradient of its step factor for the same
+        # reason; the arc-length cap above would otherwise reintroduce it. With it,
+        # the derivative depended on how the solve was differentiated: in reverse
+        # mode it changed with the number of checkpoints, and forward mode differed
+        # from reverse mode by up to 20 % at the default tolerances.
+        t0_next = jax.lax.stop_gradient(t0_next)
+        t1_next = jax.lax.stop_gradient(t1_next)
         return keep_step, t0_next, t1_next, made_jump, (pid_state, scale_0), result
 
 
