@@ -91,7 +91,10 @@ class Beam:
     """The starting position of the beam in cartesian coordinates."""
 
     direction: jt.Float[jax.Array, "3"]
-    """The starting direction of the beam in cartesian coordinates. Must be a unit vector."""
+    """The refractive index vector N = ck/ω at the starting position, in cartesian
+    coordinates. In vacuum it is the unit vector along the beam. Whether it satisfies
+    the dispersion relation at the starting position is reported in
+    `TraceResult.launched_on_hamiltonian`."""
 
     frequency: jt.Float[jax.Array, ""]
     """The frequency of the beam in Hz (not GHz!)."""
@@ -187,6 +190,11 @@ class TraceResult:
     it ran out of steps (`TracerSettings.max_steps`), reached
     `TracerSettings.max_arc_length`, or the solver failed. If set, the absorbed
     power may be underestimated."""
+
+    launched_on_hamiltonian: jt.Bool[jax.Array, ""]
+    """Whether the beam starts on the dispersion surface: the ray-tracing Hamiltonian
+    H at `Beam.position` and `Beam.direction` is zero to 1e-6. H is conserved along
+    the ray, so a ray for which this is not set stays off the dispersion surface."""
 
 
 @jax.tree_util.register_dataclass

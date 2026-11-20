@@ -16,7 +16,7 @@ from .equilibrium.interpolate import (
 )
 from .tracer.buffers import Interpolators, TraceBuffers
 from .tracer.ray import RaySetting
-from .tracer.solver import _ARC_LENGTH_TOLERANCE, trace_jitted
+from .tracer.solver import _ARC_LENGTH_TOLERANCE, _hamiltonian_scales, trace_jitted
 from .types import (
     Beam,
     BeamProfile,
@@ -177,6 +177,11 @@ def _bin_power_deposition(
     return jnp.where(is_degenerate, jnp.zeros_like(result), result)
 
 
+_LAUNCH_HAMILTONIAN_TOLERANCE = 1e-6
+"""Largest |H| at the launch point for which `TraceResult.launched_on_hamiltonian` is
+set. H is conserved along the ray, so a ray launched off the dispersion surface stays
+off it by the same amount."""
+
 _MIN_DEPOSITED_FRACTION = 1e-12
 """Deposited power fraction below which the deposition statistics are undefined."""
 
@@ -212,8 +217,12 @@ def _run_trace(
     radial_profiles: RadialProfiles,
     beam: Beam,
     settings: TracerSettings,
-) -> tuple[TraceBuffers, jax.Array]:
-    """Build interpolators and run the JIT-compiled ODE solve."""
+) -> tuple[TraceBuffers, jax.Array, jax.Array]:
+    """Build interpolators and run the JIT-compiled ODE solve.
+
+    Returns the trace buffers, the number of valid entries and the Hamiltonian at
+    the launch point.
+    """
     setting = RaySetting(
         frequency=beam.frequency, mode=beam.mode, max_harmonic=beam.max_harmonic
     )
@@ -226,7 +235,11 @@ def _run_trace(
         ),
         is_axisymmetric=magnetic_configuration.is_axisymmetric,
     )
-    return trace_jitted(
+    launch_hamiltonian = _hamiltonian_scales(
+        jnp.concatenate([jnp.asarray(beam.position), jnp.asarray(beam.direction)]),
+        (setting, interpolators, magnetic_configuration.nfp, settings),
+    ).value
+    buffers, n_valid = trace_jitted(
         jnp.asarray(beam.position),
         jnp.asarray(beam.direction),
         setting,
@@ -234,6 +247,7 @@ def _run_trace(
         magnetic_configuration.nfp,
         settings,
     )
+    return buffers, n_valid, launch_hamiltonian
 
 
 def trace(
@@ -264,8 +278,11 @@ def trace(
             plasma or was absorbed. With `trim=False` only `TraceResult.incomplete`
             is set, so the call stays traceable under `jax.jit` and `jax.grad`.
     """
-    result, n_valid = _run_trace(
+    result, n_valid, launch_hamiltonian = _run_trace(
         magnetic_configuration, radial_profiles, beam, settings
+    )
+    launched_on_hamiltonian = (
+        jnp.abs(launch_hamiltonian) <= _LAUNCH_HAMILTONIAN_TOLERANCE
     )
 
     if not trim:
@@ -311,6 +328,7 @@ def trace(
             deposition_rho_mean=rho_mean,
             deposition_rho_std=rho_std,
             incomplete=result.incomplete,
+            launched_on_hamiltonian=launched_on_hamiltonian,
         )
 
     # Trim to valid (finite) arc-length entries; diffrax leaves unvisited
@@ -382,4 +400,5 @@ def trace(
         deposition_rho_mean=rho_mean,
         deposition_rho_std=rho_std,
         incomplete=jnp.asarray(result.incomplete),
+        launched_on_hamiltonian=launched_on_hamiltonian,
     )

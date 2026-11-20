@@ -335,6 +335,34 @@ def _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration):
     return beam, profiles
 
 
+def test_launched_on_hamiltonian_flags_launches_off_the_dispersion_surface(
+    tokamak_magnetic_configuration,
+):
+    """H is conserved along the ray, so a launch with H != 0 stays off the surface.
+
+    In vacuum H = |N|^2 - 1: only a unit vector is on the surface. Inside the plasma
+    the unit vector does not satisfy the dispersion relation.
+    """
+    inside, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+    in_vacuum = replace(inside, position=jnp.array([4.1, 0.0, 0.0]))
+    run = jax.jit(
+        functools.partial(
+            trace, trim=False, settings=TracerSettings(max_arc_length=0.05)
+        )
+    )
+
+    def launched_on_hamiltonian(beam):
+        return bool(
+            run(tokamak_magnetic_configuration, profiles, beam).launched_on_hamiltonian
+        )
+
+    assert launched_on_hamiltonian(in_vacuum)
+    assert not launched_on_hamiltonian(
+        replace(in_vacuum, direction=(1 + 1e-5) * in_vacuum.direction)
+    )
+    assert not launched_on_hamiltonian(inside)
+
+
 def test_tracer_settings_non_default_runs_under_jit(tokamak_magnetic_configuration):
     """Non-default TracerSettings are accepted by trace() and produce finite results.
 

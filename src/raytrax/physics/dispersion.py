@@ -207,7 +207,7 @@ def dispersion_relation_cold(
       from the other root, where $\mathcal H_\sigma$ has a pole. $\mathcal H_\sigma$
       therefore singles out the launch mode only while $|\mathcal H_\sigma|$ on the
       ray is small against the separation of the roots, $X Y \sqrt g / |a|$, which
-      vanishes at the plasma edge.
+      vanishes at the plasma edge. See `TraceResult.launched_on_hamiltonian`.
 
     The quotient is evaluated with $\eta = N^2 - 1$ and $m = Y^2 (1 - N_\parallel^2)$,
 
