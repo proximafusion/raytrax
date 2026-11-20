@@ -94,11 +94,23 @@ whose discriminant factorises as $b^2 - 4\tilde S c = X^2 Y^2 \big[Y^2 (1-n_\par
 
 $$N_\perp^2(n_\parallel^2, X, Y) = \frac{-b \pm X Y \sqrt{Y^2 (1-n_\parallel^2)^2 + 4 n_\parallel^2 (1-X)}}{2 \tilde S},$$
 
-with $+$ the O mode and $-$ the X mode for every $Y$ (`refractive_index_perp_squared_cold`). The discriminant is evaluated in its factorised form, which keeps its digits at low density, and it is positive for every $X \le 1$: the root has no branch point anywhere below the cutoff. It depends on $n_\parallel$ only through $n_\parallel^2$, so parallel propagation needs no special treatment. The cold plasma Hamiltonian is then
+with $+$ the O mode and $-$ the X mode for every $Y$ (`refractive_index_perp_squared_cold`). The discriminant is positive for every $X \le 1$: the root has no branch point anywhere below the cutoff. It depends on $n_\parallel$ only through $n_\parallel^2$, so parallel propagation needs no special treatment.
 
-$$ \mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = n_\perp^2 - N_\perp^2\big(n_\parallel^2, X(\boldsymbol{r}), Y(\boldsymbol{r})\big), \qquad n_\perp^2 = \boldsymbol{n}\cdot\boldsymbol{n} - n_\parallel^2, $$
+The root itself is not the Hamiltonian either. Beyond the cutoff the two roots coincide where the bracket in the discriminant vanishes, on the fold $X_{\rm fold} = 1 + Y^2 (1-n_\parallel^2)^2 / (4 n_\parallel^2)$, and a ray that gets there (the X mode at $Y > 1$, obliquely, on its way from $X = 1$ towards the L cutoff) turns in $X$ with finite $n_\perp$ and continues on the other root. With $g = Y^2 (1-n_\parallel^2)^2 + 4 n_\parallel^2 (1-X)$ and $\tilde D = \tilde S\,N_\perp^4 + b\,N_\perp^2 + c = \tilde S\,(N_\perp^2 - n_{\perp,+}^2)(N_\perp^2 - n_{\perp,-}^2)$, the Hamiltonian of the root of the mode $\sigma = \pm$ is the determinant divided by the factor of the other root,
 
-so that $\mathcal{H} = 0$ is equivalent to the dispersion relation of the selected mode, which the user specifies as O or X. Next to the O-mode cutoff the root is
+$$ n_\perp^2 - n_{\perp,\sigma}^2 = \frac{\tilde D}{\tilde S\,(n_\perp^2 - n_{\perp,-\sigma}^2)} = \frac{2 \tilde D}{2 \tilde S\, n_\perp^2 + b + \sigma X Y \sqrt g}. $$
+
+The division is what makes a launch from vacuum possible: there $\tilde D = (1-Y^2)(n^2-1)^2$ has a double zero and no gradient on the ray, and the divisor removes the extra factor. But on the ray the divisor is $2 \sigma X Y \sqrt g$: it vanishes at the fold, where $n_\perp^2 - n_{\perp,\sigma}^2$ has a square-root singularity, and is complex beyond. $\tilde D$ itself is a polynomial and smooth everywhere. Raytrax therefore changes only the square root in the divisor and takes it at zero density, at the ray's $n_\parallel$ and the local $Y$, $g_0 = Y^2 (1-n_\parallel^2)^2 + 4 n_\parallel^2 > 0$:
+
+$$ \mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = \mathcal H_\sigma = \frac{2 \tilde D}{2 \tilde S\, n_\perp^2 + b + \sigma X Y \sqrt{g_0}}, \qquad n_\perp^2 = \boldsymbol{n}\cdot\boldsymbol{n} - n_\parallel^2 $$
+
+(`dispersion_relation_cold`). At the edge $g_0 - g = 4 n_\parallel^2 X$, and since the square root carries a factor $X$ the divisor changes at order $X^2$: $\mathcal H_\sigma$ agrees with $n_\perp^2 - n_{\perp,\sigma}^2$ to first order in the density, so the mode that is launched is the one the user specifies as O ($\sigma = +1$) or X ($\sigma = -1$). On the sheet of that mode the divisor is $\sigma X Y (\sqrt g + \sqrt{g_0})$, nonzero at every density, and $\mathcal H_\sigma = \big(n_\perp^2 - n_{\perp,\sigma}^2\big)\, 2\sqrt g / (\sqrt g + \sqrt{g_0})$: the same rays with a rescaled parameter. At the fold the divisor is $\sigma X Y \sqrt{g_0}$ and $\mathcal H_\sigma$ has locally the characteristics of the determinant. Its zero set is the whole cold dispersion surface, both roots, the incident and the return leg; $\sigma$ labels the launch, not the root the ray is on.
+
+The price is that $\mathcal H_\sigma$ singles out the launch mode only while $|\mathcal H_\sigma|$ on the ray is small against the separation of the roots, $X Y \sqrt g / |\tilde S|$, which vanishes at the plasma edge: off the dispersion surface the divisor has a zero, and $\mathcal H_\sigma$ a pole, at a distance of order $X^2$ from the other root. $\mathcal H$ is conserved, so its value on the ray is set at the launch. With $\eta = n^2 - 1$ and $m = Y^2 (1 - n_\parallel^2)$ the quotient reads
+
+$$ \mathcal H_\sigma = \frac{\tilde S\,\eta^2 + X \eta\,(2 - 2X - m) + X^2 (1 - X)}{\tilde S\,\eta + X \big(1 - X - m/2 + \sigma Y \sqrt{g_0}/2\big)}, $$
+
+which is the form that is evaluated: at zero density $\mathcal H = n^2 - 1$, the vacuum Hamiltonian, and near the launch sheet, where $\eta = O(X)$, every term of the numerator is of order $X^2$, so nothing of order one is subtracted to obtain it, and nothing is divided by $\tilde S$, which vanishes at the upper-hybrid layer. Next to the O-mode cutoff the root is
 
 $$N_\perp^2 \simeq \kappa\,(1 - X), \qquad \kappa = \frac{\big((1-Y)\,n_\parallel^2 + Y\big)\big(Y - (1+Y)\,n_\parallel^2\big)}{Y^2\,(1 - n_\parallel^2)} > 0 \quad \text{for } n_\parallel^2 < \frac{Y}{1+Y},$$
 

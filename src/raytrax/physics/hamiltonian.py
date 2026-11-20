@@ -34,15 +34,21 @@ def hamiltonian(
     Float[jax.Array, ""],
     HamiltonianAux,
 ]:
-    r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = n_\perp^2 - N_\perp^2(n_\parallel^2, \boldsymbol{r})$.
+    r"""Ray-tracing Hamiltonian $\mathcal{H}(\boldsymbol{r}, \boldsymbol{n}) = \mathcal H_\sigma(n_\perp^2, n_\parallel^2, X, Y)$.
 
     Rays propagate along level sets $\mathcal{H} = 0$. In vacuum ($n_e = 0$) the
-    trivial form $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used; elsewhere
-    $N_\perp^2$ is the O- or X-mode root of the cold-plasma dispersion relation at
-    the parallel refractive index $n_\parallel = \boldsymbol{n} \cdot \boldsymbol{B} / |\boldsymbol{B}|$
-    of the ray, see `dispersion.refractive_index_perp_squared_cold`. This form is
-    smooth where rays are reflected, in particular at the O-mode cutoff, and depends
-    on $n_\parallel$ only through its square.
+    trivial form $\mathcal{H} = |\boldsymbol{n}|^2 - 1$ is used. Elsewhere
+    $\mathcal H$ is the determinant of the cold wave matrix at the parallel
+    refractive index $n_\parallel = \boldsymbol{n} \cdot \boldsymbol{B} / |\boldsymbol{B}|$
+    of the ray, normalised by the launch mode $\sigma$ (O or X), see
+    `dispersion.dispersion_relation_cold`: it goes over into $|\boldsymbol{n}|^2 - 1$
+    at zero density, agrees there to first order in the density with
+    $n_\perp^2 - n_{\perp,\sigma}^2(n_\parallel^2)$ of the launch mode, and is one
+    expression that is smooth where rays are reflected, at the O-mode cutoff as well
+    as at the fold beyond it, where the two roots of the dispersion relation coincide
+    and the ray passes from one to the other. It depends on $n_\parallel$ only
+    through its square. This function evaluates the local fields and
+    $n_\parallel$, $n_\perp^2$ of the ray; the algebra is in `dispersion`.
 
     Args:
         position: Cartesian position vector $\boldsymbol{r}$ in metres.
@@ -125,7 +131,8 @@ def _hamiltonian_cold(
     frequency: Float[jax.Array, ""],
     mode: Literal["X", "O"],
 ) -> Float[jax.Array, ""]:
-    """Compute the Hamiltonian for a cold plasma, n_perp^2 - N_perp^2(n_para^2)."""
+    """Compute the Hamiltonian for a cold plasma: the wave determinant at the ray's
+    n_para^2, normalised by the launch mode so that it is |n|^2 - 1 in vacuum."""
     magnetic_field_strength = jnp.linalg.norm(magnetic_field)
     tangent = magnetic_field / magnetic_field_strength
     refractive_index_para = jnp.dot(refractive_index, tangent)
@@ -140,10 +147,12 @@ def _hamiltonian_cold(
     plasma_frequency = quantities.electron_plasma_frequency(
         electron_density_1e20_per_m3=electron_density_1e20_per_m3
     )
-    n_perp2_dispersion = dispersion.refractive_index_perp_squared_cold(
-        refractive_index_para_squared=refractive_index_para**2,
-        X=(plasma_frequency / frequency) ** 2,
-        Y=cyclotron_frequency / frequency,
-        mode=mode,
+    return jnp.squeeze(
+        dispersion.dispersion_relation_cold(
+            refractive_index_perp_squared=refractive_index_perp_squared,
+            refractive_index_para_squared=refractive_index_para**2,
+            X=(plasma_frequency / frequency) ** 2,
+            Y=cyclotron_frequency / frequency,
+            mode=mode,
+        )
     )
-    return jnp.squeeze(refractive_index_perp_squared - n_perp2_dispersion)
