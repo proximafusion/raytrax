@@ -328,6 +328,7 @@ def trace(
             deposition_rho_mean=rho_mean,
             deposition_rho_std=rho_std,
             incomplete=result.incomplete,
+            stopped_at_resonance=result.stopped_at_resonance,
             launched_on_hamiltonian=launched_on_hamiltonian,
         )
 
@@ -340,7 +341,13 @@ def trace(
     result = jax.device_get(result)
     if bool(result.incomplete):
         s_end = float(result.arc_length[n - 1])
-        if n == settings.max_steps + 1:
+        if bool(result.stopped_at_resonance):
+            cause = (
+                "stopped the ray at a resonance of the cold dispersion relation "
+                "(upper-hybrid layer, TracerSettings.max_refractive_index_perp="
+                f"{settings.max_refractive_index_perp:g})"
+            )
+        elif n == settings.max_steps + 1:
             cause = f"ran out of steps (TracerSettings.max_steps={settings.max_steps})"
         elif s_end >= settings.max_arc_length - _ARC_LENGTH_TOLERANCE:
             cause = (
@@ -400,5 +407,6 @@ def trace(
         deposition_rho_mean=rho_mean,
         deposition_rho_std=rho_std,
         incomplete=jnp.asarray(result.incomplete),
+        stopped_at_resonance=jnp.asarray(result.stopped_at_resonance),
         launched_on_hamiltonian=launched_on_hamiltonian,
     )

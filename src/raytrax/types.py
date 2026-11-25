@@ -188,8 +188,18 @@ class TraceResult:
     incomplete: jt.Bool[jax.Array, ""]
     """Whether the ODE solve stopped before the ray left the plasma or was absorbed:
     it ran out of steps (`TracerSettings.max_steps`), reached
-    `TracerSettings.max_arc_length`, or the solver failed. If set, the absorbed
-    power may be underestimated."""
+    `TracerSettings.max_arc_length`, was stopped at a resonance (see
+    `stopped_at_resonance`), or the solver failed. If set, the absorbed power may be
+    underestimated."""
+
+    stopped_at_resonance: jt.Bool[jax.Array, ""]
+    r"""Whether the ray was stopped at a resonance of the cold dispersion relation,
+    where $1 - X - Y^2 \to 0$ on the slow X mode (the upper-hybrid layer for
+    perpendicular propagation) and $n_\perp$ diverges. The ray ends where
+    $n_\perp$ reaches `TracerSettings.max_refractive_index_perp`. The power it still carries there is not followed: in a
+    warm plasma it goes into the electron Bernstein wave, which the cold dispersion
+    relation does not describe. It is not counted as absorbed, and `incomplete` is
+    set."""
 
     launched_on_hamiltonian: jt.Bool[jax.Array, ""]
     """Whether the beam starts on the dispersion surface: the ray-tracing Hamiltonian
@@ -221,6 +231,14 @@ class TracerSettings:
     max_arc_length: float = 20.0
     """Arc length in metres at which a ray that has not left the plasma or been
     absorbed is stopped; `TraceResult.incomplete` is then set."""
+
+    max_refractive_index_perp: float = 10.0
+    r"""Perpendicular refractive index $n_\perp$ at which a ray that runs into a
+    resonance of the cold dispersion relation (the upper-hybrid layer) is stopped;
+    `TraceResult.stopped_at_resonance` and `TraceResult.incomplete` are then set.
+    Rays that do not approach a resonance stay at $n_\perp$ of order one. With the
+    default the ray ends where $X + Y^2 - 1 = X (1 - X) / 100$ for perpendicular
+    propagation."""
 
     dispersion_error_weight: float = 30.0
     """Weight of the change of the Hamiltonian H over a step in the step-size error

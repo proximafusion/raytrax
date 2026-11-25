@@ -425,6 +425,96 @@ def test_step_limit_is_reported_instead_of_silently_truncating(
     np.testing.assert_allclose(complete.optical_depth, np.log(1e3), rtol=1e-6)
 
 
+def test_ray_stops_at_the_upper_hybrid_resonance(tokamak_magnetic_configuration):
+    """An X-mode ray from the high-field side stops in front of the upper-hybrid layer.
+
+    At 56 GHz the ray starts at Y = 2.2, crosses Y = 1 and approaches the layer
+    1 - X - Y² = 0 near the low-field edge from the side where this is negative.
+    There n_perp² grows as 1 / (X + Y² - 1); the ray ends where n_perp reaches
+    TracerSettings.max_refractive_index_perp = 10. The
+    temperature is 1 eV, so that the ray is not absorbed at Y = 1 on the way.
+    """
+    rho = jnp.linspace(0, 1, 101)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.02 + 0.18 * (1 - rho**2),
+        electron_temperature=1e-3 * jnp.ones_like(rho),
+    )
+    angle = np.deg2rad(20.0)
+    beam = Beam(
+        position=jnp.array([1.7, 0.0, 0.0]),
+        direction=jnp.array([np.cos(angle), np.sin(angle), 0.0]),
+        frequency=56e9,
+        mode="X",
+        power=1e6,
+    )
+
+    with pytest.warns(RuntimeWarning, match="resonance"):
+        result = trace(tokamak_magnetic_configuration, profiles, beam)
+
+    assert bool(result.stopped_at_resonance)
+    assert bool(result.incomplete)
+    profile = result.beam_profile
+    refractive_index = np.asarray(profile.refractive_index[-1])
+    magnetic_field = np.asarray(profile.magnetic_field[-1])
+    n_parallel = refractive_index @ magnetic_field / np.linalg.norm(magnetic_field)
+    np.testing.assert_allclose(
+        refractive_index @ refractive_index - n_parallel**2, 100.0, rtol=1e-4
+    )
+    x = (
+        float(quantities.electron_plasma_frequency(profile.electron_density[-1])) / 56e9
+    ) ** 2
+    y = (
+        float(quantities.electron_cyclotron_frequency(np.linalg.norm(magnetic_field)))
+        / 56e9
+    )
+    assert -2e-3 < 1 - x - y**2 < 0
+    # The power that arrives at the layer is not counted as absorbed.
+    assert float(result.absorbed_power_fraction) < 1e-3
+
+    # trim=False must stay traceable, and the default settings must already be
+    # converged: the layer is approached with resolved steps.
+    padded = jax.jit(functools.partial(trace, trim=False))(
+        tokamak_magnetic_configuration, profiles, beam
+    )
+    assert bool(padded.stopped_at_resonance)
+    with pytest.warns(RuntimeWarning, match="resonance"):
+        fine = trace(
+            tokamak_magnetic_configuration,
+            profiles,
+            beam,
+            settings=TracerSettings(
+                relative_tolerance=1e-7,
+                absolute_tolerance=1e-9,
+                max_step_size=2e-3,
+                max_steps=8192,
+            ),
+        )
+    np.testing.assert_allclose(
+        profile.position[-1], fine.beam_profile.position[-1], atol=1e-4
+    )
+
+    # The stop follows TracerSettings.max_refractive_index_perp.
+    with pytest.warns(RuntimeWarning, match="max_refractive_index_perp=5"):
+        earlier = trace(
+            tokamak_magnetic_configuration,
+            profiles,
+            beam,
+            settings=TracerSettings(max_refractive_index_perp=5.0),
+        )
+    n_end = np.asarray(earlier.beam_profile.refractive_index[-1])
+    b_end = np.asarray(earlier.beam_profile.magnetic_field[-1])
+    np.testing.assert_allclose(
+        n_end @ n_end - (n_end @ b_end) ** 2 / (b_end @ b_end), 25.0, rtol=1e-4
+    )
+    assert float(earlier.beam_profile.arc_length[-1]) < float(profile.arc_length[-1])
+
+    # The O mode crosses the same layer without a resonance.
+    o_mode = trace(tokamak_magnetic_configuration, profiles, replace(beam, mode="O"))
+    assert not bool(o_mode.stopped_at_resonance)
+    assert not bool(o_mode.incomplete)
+
+
 def test_ray_leaving_the_plasma_stops_at_the_exit_condition(w7x_wout):
     """A ray leaving the plasma with a long step stops exactly at rho = 1.05.
 

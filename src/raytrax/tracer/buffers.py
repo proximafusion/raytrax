@@ -57,3 +57,5 @@ class TraceBuffers:
     incomplete: jt.Bool[jax.Array, ""]
     """Whether the solve ended without a termination event (ray left the plasma,
     was absorbed or left the domain)."""
+    stopped_at_resonance: jt.Bool[jax.Array, ""]
+    """Whether the ray was stopped at a resonance of the cold dispersion relation."""

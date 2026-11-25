@@ -17,6 +17,7 @@ settings = raytrax.TracerSettings(
     max_step_size=0.05,  # metres
     max_arc_length=20.0,  # metres
     dispersion_error_weight=30.0,  # weight of the frequency mismatch δω/ω (change of H) in the step error
+    max_refractive_index_perp=10.0,  # stop in front of the upper-hybrid resonance
     max_steps=4096,  # step budget, sizes the output buffers
 )
 
@@ -34,6 +35,8 @@ The five float fields are ordinary JAX values (not static compile-time constants
 **`dispersion_error_weight`** adds the change of the Hamiltonian over a step to the step-size error estimate, expressed as the relative frequency mismatch δω/ω = ΔH / (ω ∂H/∂ω) it amounts to (see [Plasma Boundary](theory/ray-tracing.md#plasma-boundary)). It detects steps that skip the thin edge-density ramp or otherwise leave the dispersion surface. Larger values tighten this check, usually requiring more steps. Zero disables the extra error term.
 
 **`max_arc_length`** is a safety cutoff. Rays that haven't terminated (by leaving the plasma or being absorbed) are stopped at this arc length, located by the same root finder as the exit from the plasma (the integration variable is the Hamiltonian time; the arc length is integrated alongside, see [Ray Tracing](theory/ray-tracing.md#ray-tracing-equations)). 20 m is generous for any current fusion device; you would only need to lower it to speed up debugging of misconfigured inputs, or raise it for very large devices.
+
+**`max_refractive_index_perp`** ends a ray that runs into the upper-hybrid resonance, where $N_\perp$ of the X mode diverges and the ray would never arrive. The ray is stopped where $N_\perp$ reaches this value, and `TraceResult.stopped_at_resonance` and `TraceResult.incomplete` are set. Rays that do not approach a resonance have $N_\perp$ of order one, so the default of 10 does not touch them; near the layer $N_\perp^2 = X (1 - X) / (X + Y^2 - 1)$ for perpendicular propagation, which gives the distance to the layer at the stop.
 
 **`max_steps`** is the step budget of the ODE solver and sizes the output buffers (`max_steps + 1` entries per trajectory quantity with `trim=False`). If a ray needs more steps, typically because of a small `max_step_size` or tight tolerances, the trace stops early: `TraceResult.incomplete` is set and, with `trim=True`, `trace` emits a `RuntimeWarning` naming the cause. The absorbed power of such a trace is underestimated, so raise `max_steps` until the flag is no longer set. Reaching `max_arc_length` sets the same flag.
 

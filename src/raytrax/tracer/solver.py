@@ -363,6 +363,30 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
         return keep_step, t0_next, t1_next, made_jump, (pid_state, scales_0), result
 
 
+# The cold dispersion relation has a resonance where 1 - X - Y² = 0 (the upper-hybrid
+# layer for perpendicular propagation): N_perp² of the slow X mode grows as the inverse
+# of the distance to the layer, the group velocity falls as N_perp⁻³ and the ray does
+# not reach the layer in finite time. The ray is stopped where N_perp reaches
+# TracerSettings.max_refractive_index_perp. Rays that do not approach a resonance stay
+# at N_perp of order one. Near the layer N_perp² = X (1 - X) / (X + Y² - 1) for
+# perpendicular propagation, so with the default of 10 the ray ends where
+# X + Y² - 1 = X (1 - X) / 100 < 0.0025; there k_perp rho_e = N_perp v_te / (c Y) is
+# already about 0.5 at 1 keV, and the cold dispersion relation no longer holds.
+#
+# The root find places the end of the ray on 1 - (N_perp / max)² = 0 to 1e-9.
+_RESONANCE_TOLERANCE = 1e-6
+
+
+def _cond_resonance(y, interpolators, nfp, tracer_settings):
+    """1 - (N_perp / TracerSettings.max_refractive_index_perp)² of the ODE state y."""
+    magnetic_field = _eval_magnetic_field(y[:3], interpolators, nfp)
+    n = y[3:6]
+    n_perp_squared = jnp.dot(n, n) - jnp.dot(n, magnetic_field) ** 2 / jnp.dot(
+        magnetic_field, magnetic_field
+    )
+    return 1.0 - n_perp_squared / tracer_settings.max_refractive_index_perp**2
+
+
 def _cond_terminate(t, y, args, **kwargs):
     """Terminate when this falls through zero, i.e. when the first of these happens.
 
@@ -370,17 +394,23 @@ def _cond_terminate(t, y, args, **kwargs):
     - the ray is fully absorbed (exp(-tau) < 1e-3),
     - the ray leaves the computational domain (|r| > 20 m),
     - the arc length reaches TracerSettings.max_arc_length; the ray is then
-      incomplete, see `trace_jitted`.
+      incomplete, see `trace_jitted`,
+    - the ray runs into a resonance of the cold dispersion relation
+      (N_perp > TracerSettings.max_refractive_index_perp); the ray is then incomplete
+      and `TraceBuffers.stopped_at_resonance` is set.
     """
     return jnp.minimum(
         jnp.minimum(
-            1.05 - _eval_rho(y[:3], args[1], args[2]),
-            jnp.exp(-y[6]) - 1e-3,
+            jnp.minimum(
+                1.05 - _eval_rho(y[:3], args[1], args[2]),
+                jnp.exp(-y[6]) - 1e-3,
+            ),
+            jnp.minimum(
+                20.0 - jnp.linalg.norm(y[:3]),
+                args[3].max_arc_length - y[7],
+            ),
         ),
-        jnp.minimum(
-            20.0 - jnp.linalg.norm(y[:3]),
-            args[3].max_arc_length - y[7],
-        ),
+        _cond_resonance(y, args[1], args[2], args[3]),
     )
 
 
@@ -531,12 +561,25 @@ def trace_jitted(
     n_valid = jnp.sum(jnp.isfinite(ts)).astype(jnp.int32)
     # Complete only if the ray left the plasma, was absorbed or left the domain. The
     # arc-length cap is a cutoff like the step budget: a ray stopped there, which the
-    # root find ends at the cap itself, is incomplete.
+    # root find ends at the cap itself, is incomplete. So is a ray stopped at a
+    # resonance: the power it still carries is not followed any further.
     s_end = jnp.max(jnp.where(jnp.isfinite(ys[:, 7]), ys[:, 7], -jnp.inf))
     reached_max_arc_length = (
         s_end >= tracer_settings.max_arc_length - _ARC_LENGTH_TOLERANCE
     )
-    incomplete = (sol.result != diffrax.RESULTS.event_occurred) | reached_max_arc_length
+    # A ray stopped at a resonance ends on the zero of that condition. Read from the
+    # end point rather than from the solver result: where N_perp² rises steeply the
+    # root find can end on the zero without meeting its own tolerance.
+    y_end = ys[jnp.maximum(n_valid - 1, 0)]
+    stopped_at_resonance = (
+        _cond_resonance(y_end, interpolators, nfp, tracer_settings)
+        <= _RESONANCE_TOLERANCE
+    )
+    incomplete = (
+        (sol.result != diffrax.RESULTS.event_occurred)
+        | reached_max_arc_length
+        | stopped_at_resonance
+    )
     return (
         TraceBuffers(
             arc_length=ys[:, 7],
@@ -548,6 +591,7 @@ def trace_jitted(
             absorption_coefficient=diag.absorption_coefficient,
             linear_power_density=diag.linear_power_density,
             incomplete=jnp.asarray(incomplete),
+            stopped_at_resonance=jnp.asarray(stopped_at_resonance),
         ),
         n_valid,
     )
