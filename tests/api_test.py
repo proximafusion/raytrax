@@ -316,6 +316,84 @@ def test_ray_is_reflected_at_its_cutoff(
     assert end_distance < 1e-3
 
 
+def test_x_mode_ray_turns_at_the_fold_and_reflects_between_the_folds(
+    tokamak_magnetic_configuration,
+):
+    """An overdense X-mode ray at Y > 1 turns at the fold of the dispersion relation,
+    reflects at X = 1 with N_perp = 0 and turns at the fold again on its way out.
+
+    42 GHz, launched at 45 degrees to the major radius in the midplane. At the fold
+    the two roots N_perp^2 at the ray's N_par meet at a finite N_perp, at
+    X = 1 + Y^2 (1 - N_par^2)^2 / (4 N_par^2); between the two folds the ray runs on
+    the other root down to N_perp = 0 at X = 1. The Appleton-Hartree Hamiltonian of
+    #89 passes the fold and leaves the dispersion surface at that point (|N|^2 - 1
+    of 0.07 to 0.4 back in vacuum, at any tolerance).
+    """
+    rho = jnp.linspace(0, 1, 80)
+    profiles = RadialProfiles(
+        rho=rho,
+        electron_density=0.67 * (1 - rho**2),
+        electron_temperature=0.03 * jnp.ones_like(rho),
+    )
+    angle = np.deg2rad(45.0)
+    beam = Beam(
+        position=jnp.array([4.3, 0.0, 0.0]),
+        direction=jnp.array([-np.cos(angle), np.sin(angle), 0.0]),
+        frequency=42e9,
+        mode="X",
+        power=1e6,
+    )
+    converged = trace(
+        tokamak_magnetic_configuration,
+        profiles,
+        beam,
+        settings=TracerSettings(
+            relative_tolerance=1e-7,
+            absolute_tolerance=1e-9,
+            max_step_size=0.004,
+            max_steps=8192,
+        ),
+    )
+    result = trace(tokamak_magnetic_configuration, profiles, beam)
+
+    for traced, tolerance in ((result, 1e-3), (converged, 1e-5)):
+        assert not traced.incomplete
+        bp = traced.beam_profile
+        # Back in vacuum the ray is on the dispersion surface |N| = 1.
+        n_end = np.asarray(bp.refractive_index[-1])
+        assert abs(n_end @ n_end - 1) < tolerance
+
+    bp = converged.beam_profile
+    x = (
+        np.asarray(quantities.electron_plasma_frequency(bp.electron_density))
+        / beam.frequency
+    ) ** 2
+    magnetic_field = np.asarray(bp.magnetic_field)
+    b_norm = np.linalg.norm(magnetic_field, axis=1)
+    y = np.asarray(quantities.electron_cyclotron_frequency(b_norm)) / beam.frequency
+    n_vec = np.asarray(bp.refractive_index)
+    n_par = np.sum(n_vec * magnetic_field, axis=1) / b_norm
+    n_perp2 = np.sum(n_vec**2, axis=1) - n_par**2
+    # The ray turns at the fold, at a finite N_perp ...
+    i_fold = np.argmax(x)
+    x_fold = 1 + y[i_fold] ** 2 * (1 - n_par[i_fold] ** 2) ** 2 / (
+        4 * n_par[i_fold] ** 2
+    )
+    np.testing.assert_allclose(x[i_fold], x_fold, rtol=1e-4)
+    assert n_perp2[i_fold] > 0.05
+    # ... and reflects at X = 1, where N_perp vanishes.
+    overdense = x > 0.99
+    i_reflection = np.flatnonzero(overdense)[np.argmin(n_perp2[overdense])]
+    assert n_perp2[i_reflection] < 1e-4
+    np.testing.assert_allclose(x[i_reflection], 1.0, atol=1e-3)
+
+    end_distance = np.linalg.norm(
+        np.asarray(result.beam_profile.position[-1])
+        - np.asarray(converged.beam_profile.position[-1])
+    )
+    assert end_distance < 1e-3
+
+
 # The finite differences of tau agree between angles, step sizes and code versions to
 # 1e-4, while jax.grad scatters around them by 0.02 % to 1.2 %, depending on the angle
 # and on the step sequence, with the arc-length solver of #90 as well as with the
