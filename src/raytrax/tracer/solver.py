@@ -211,23 +211,27 @@ def _right_hand_side(
     )
 
 
-class _HamiltonianScales(NamedTuple):
-    """H at an ODE state with the scales the step-size control needs."""
+class _HamiltonianScale(NamedTuple):
+    r"""$H$ at an ODE state with the scales the step-size control needs."""
 
     value: jt.Float[jax.Array, ""]
-    """H."""
+    r"""$H$."""
     frequency_scale: jt.Float[jax.Array, ""]
-    """ω ∂H/∂ω at fixed wave vector. H / frequency_scale is the relative frequency
-    mismatch δω/ω by which the wave is off the dispersion surface."""
+    r"""$\omega\,\partial H/\partial\omega$ at fixed wave vector. `value / frequency_scale`
+    is the relative frequency mismatch $\delta\omega/\omega$ by which the wave is off
+    the dispersion surface."""
     velocity: jt.Float[jax.Array, "3"]
-    """∂H/∂N = dr/dt, the velocity of the ray in Hamiltonian time; its norm is the
-    arc length per unit of Hamiltonian time."""
+    r"""$\partial H/\partial\boldsymbol{N} = d\boldsymbol{r}/dt$, the velocity of the
+    ray in Hamiltonian time; its norm is the arc length per unit of Hamiltonian
+    time."""
 
 
-def _hamiltonian_scales(
-    y: jt.Float[jax.Array, " n "], args: tuple
-) -> _HamiltonianScales:
-    """Evaluate H, ω ∂H/∂ω at fixed wave vector and ∂H/∂N at an ODE state."""
+def _hamiltonian_scale(
+    y: jt.Float[jax.Array, " n "],
+    args: tuple,
+) -> _HamiltonianScale:
+    r"""Evaluate $H$, $\omega\,\partial H/\partial\omega$ at fixed wave vector and
+    $\partial H/\partial\boldsymbol{N}$."""
     setting, interpolators, nfp, _ = args
     frequency = jnp.asarray(setting.frequency, dtype=float)
 
@@ -247,7 +251,7 @@ def _hamiltonian_scales(
     )
     # N = c k / ω: at fixed k, N scales with 1 / ω as well.
     frequency_scale = frequency * dh_dfrequency - jnp.dot(y[3:6], gradient_n)
-    return _HamiltonianScales(value, frequency_scale, gradient_n)
+    return _HamiltonianScale(value, frequency_scale, gradient_n)
 
 
 def _error_norm(scaled_error: jt.Float[jax.Array, " n "]) -> jt.Float[jax.Array, ""]:
@@ -261,21 +265,24 @@ def _error_norm(scaled_error: jt.Float[jax.Array, " n "]) -> jt.Float[jax.Array,
 
 
 class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
-    """PID control on an error estimate that also includes the change of H.
+    r"""PID control on an error estimate that also includes the change of $H$.
 
-    H is conserved along exact rays. A step that jumps over a thin layer, such as the
+    $H$ is conserved along exact rays. A step that jumps over a thin layer, such as the
     density ramp at the plasma edge, puts no Runge-Kutta stage inside it, so the
-    embedded error estimate misses the layer while H changes. The change of H over
+    embedded error estimate misses the layer while $H$ changes. The change of $H$ over
     the step is converted to the relative frequency mismatch
-    |ΔH| / |ω ∂H/∂ω| it amounts to, which does not depend on how H is written or
-    parametrised, weighted and added to the error of N.
+    $|\Delta H| / |\omega\,\partial H/\partial\omega|$ it amounts to, which does not
+    depend on how $H$ is written or on the parametrisation of the ray, weighted and
+    added to the error of $\boldsymbol{N}$. In vacuum it equals the change of
+    $|\boldsymbol{N}|$.
 
     The ODE runs in Hamiltonian time, while the step limits are arc lengths in
-    metres: the initial step and the maximum step are divided by ds/dt = |∂H/∂N|.
-    Where a ray is reflected ds/dt goes through zero, so the step predicted from
-    ds/dt at the start of a step can turn out longer than the maximum; a step whose
-    arc length (the increment of the integrated s) exceeds it by more than half is
-    rejected and shortened in proportion.
+    metres: the initial step and the maximum step are divided by
+    $ds/dt = |\partial H/\partial\boldsymbol{N}|$. Where a ray is reflected $ds/dt$
+    goes through zero, so the step predicted from $ds/dt$ at the start of a step can
+    turn out longer than the maximum; a step whose arc length (the increment of the
+    integrated $s$) exceeds it by more than half is rejected and shortened in
+    proportion.
     """
 
     pid: diffrax.PIDController
@@ -305,30 +312,30 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
         )
 
     def init(self, terms, t0, t1, y0, dt0, args, func, error_order):
-        scales = _hamiltonian_scales(y0, args)
+        scale = _hamiltonian_scale(y0, args)
         t1_next, pid_state = self.pid.init(
             terms,
             t0,
             t1,
             y0,
-            dt0 / jnp.linalg.norm(scales.velocity),
+            dt0 / jnp.linalg.norm(scale.velocity),
             args,
             func,
             error_order,
         )
         # H and ∂H/∂N at the start of the next step; reused until a step is accepted.
-        return t1_next, (pid_state, scales)
+        return t1_next, (pid_state, scale)
 
     def adapt_step_size(
         self, t0, t1, y0, y1_candidate, args, y_error, error_order, controller_state
     ):
         assert y_error is not None  # Bosh3 provides an error estimate
-        pid_state, scales_0 = controller_state
-        scales = _hamiltonian_scales(y1_candidate, args)
+        pid_state, scale_0 = controller_state
+        scale = _hamiltonian_scale(y1_candidate, args)
         frequency_error = (
             self.weight
-            * jnp.abs(scales.value - scales_0.value)
-            / jnp.abs(scales.frequency_scale)
+            * jnp.abs(scale.value - scale_0.value)
+            / jnp.abs(scale.frequency_scale)
         )
         # The PID scales each component by its own tolerance. Rescale so that the
         # added relative error is measured against the tolerance of a quantity of
@@ -354,13 +361,13 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
             jnp.minimum(t1_next, t0 + (t1 - t0) * self.max_step_size / arc_length),
             jnp.minimum(
                 t1_next,
-                t0_next + self.max_step_size / jnp.linalg.norm(scales.velocity),
+                t0_next + self.max_step_size / jnp.linalg.norm(scale.velocity),
             ),
         )
-        scales_0 = jax.tree_util.tree_map(
-            lambda new, old: jnp.where(keep_step, new, old), scales, scales_0
+        scale_0 = jax.tree_util.tree_map(
+            lambda new, old: jnp.where(keep_step, new, old), scale, scale_0
         )
-        return keep_step, t0_next, t1_next, made_jump, (pid_state, scales_0), result
+        return keep_step, t0_next, t1_next, made_jump, (pid_state, scale_0), result
 
 
 # The cold dispersion relation has a resonance where 1 - X - Y² = 0 (the upper-hybrid
@@ -431,9 +438,11 @@ _event = diffrax.Event(
 )
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
-# Third order on purpose: the linearly interpolated equilibrium makes the right-hand
-# side only piecewise smooth, so higher-order tableaus lose their order and
-# Bosh3 reaches a given accuracy with the fewest right-hand-side evaluations.
+# Third order on purpose: the right-hand side contains the gradients of the
+# interpolated B and rho, whose derivatives jump at the grid cell faces, so it is
+# only piecewise smooth. Higher-order tableaus lose their order on such a right-hand
+# side, and Bosh3 reaches a given accuracy with the fewest right-hand-side
+# evaluations.
 _solver = diffrax.Bosh3()
 
 

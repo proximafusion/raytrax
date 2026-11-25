@@ -34,11 +34,11 @@ The gradients $\partial \mathcal H/\partial \boldsymbol{r}$ and $\partial \mathc
 
 If the electron density does not vanish at the plasma boundary, the ray has to be refracted at the plasma–vacuum interface. Raytrax extends the profile with a ramp to zero over $\Delta\rho = 0.02$. A shape-preserving cubic interpolant joins profile and ramp with a continuous gradient.
 
-A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change $\Delta \mathcal H$ of the conserved Hamiltonian over each step, expressed as the relative frequency mismatch it amounts to,
+A Runge-Kutta step can skip this thin ramp and miss the refraction. The controller therefore also measures the change of the conserved Hamiltonian over each step, converted to the relative frequency mismatch it amounts to,
 
-$$\frac{\delta\omega}{\omega} = \frac{\Delta \mathcal H}{\omega\,\partial \mathcal H/\partial\omega\,|_{\boldsymbol{k}}}, \qquad \omega\,\frac{\partial \mathcal H}{\partial\omega}\Big|_{\boldsymbol{k}} = \omega\,\frac{\partial \mathcal H}{\partial\omega}\Big|_{\boldsymbol{n}} - \boldsymbol{n}\cdot\frac{\partial \mathcal H}{\partial \boldsymbol{n}},$$
+$$\frac{\delta\omega}{\omega} = w\,\frac{|\Delta \mathcal H|}{\left|\omega\,\partial \mathcal H/\partial\omega\right|_{\boldsymbol{k}}},$$
 
-the relative change of frequency that would put the wave back on the dispersion surface. To first order it is the same for $\mathcal H$ and for $f\,\mathcal H$ with any smooth non-zero $f$, so it measures the ray and not the form of $\mathcal H$, and it stays finite at a reflection, where $\partial \mathcal H/\partial \boldsymbol{n}$ vanishes but $\partial \mathcal H/\partial\omega$ does not. The controller adds $w\,|\delta\omega/\omega|$ to its error estimate, with `TracerSettings.dispersion_error_weight` setting $w$ (default 30); $\partial \mathcal H/\partial\omega$ comes out of the same reverse-mode pass as $\partial \mathcal H/\partial \boldsymbol{n}$. This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
+that is, the relative change of frequency that would put the wave back on the dispersion surface. The derivative is taken at fixed wave vector $\boldsymbol{k} = \omega\boldsymbol{n}/c$. The measure does not depend on how $\mathcal H$ is written, and in vacuum it equals the change of $|\boldsymbol{n}|$. It stays finite at a reflection, where $\partial \mathcal H/\partial \boldsymbol{n}$ vanishes but $\partial \mathcal H/\partial\omega$ does not. `TracerSettings.dispersion_error_weight` sets $w$ (default 30). This detects missed refraction without modifying Hamilton's equations. Invariants such as $R\,n_\varphi$ in an axisymmetric configuration are preserved to the accuracy of the integration.
 
 ## Cold Tracing
 

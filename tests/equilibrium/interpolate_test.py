@@ -1062,58 +1062,152 @@ def test_build_ne_interpolator_is_jit_compatible():
     assert jnp.isfinite(result)
 
 
-def test_regular_grid_interpolator_matches_interpax():
-    """Values and position gradients agree with interpax linear, NaN nodes and outside points give `fill`."""
+def test_grid_interpolator_matches_interpax_catmull_rom():
+    """Values and position gradients agree with interpax Catmull-Rom away from the edges.
+
+    NaN nodes and points outside the grid give `fill`.
+    """
     import interpax
 
     rng = np.random.default_rng(0)
     x, y, z = (
         jnp.linspace(1.0, 2.0, 7),
-        jnp.linspace(0.0, 0.6, 5),
+        jnp.linspace(0.0, 0.6, 6),
         jnp.linspace(-1.0, 1.0, 9),
     )
-    f = jnp.asarray(rng.normal(size=(7, 5, 9, 3))).at[0, 0, 0].set(jnp.nan)
-    ours = interpolate.RegularGridInterpolator(
+    f = jnp.asarray(rng.normal(size=(7, 6, 9, 3)))
+    ours = interpolate.GridInterpolator(
         lower=jnp.array([1.0, 0.0, -1.0]),
         upper=jnp.array([2.0, 0.6, 1.0]),
         f=f,
+        mirror_sign=jnp.array(1.0),
         fill=0.5,
     )
-    ref = interpax.Interpolator3D(
-        x, y, z, jnp.nan_to_num(f, nan=0.5), method="linear", extrap=0.5
+    ref = interpax.Interpolator3D(x, y, z, f, method="catmull-rom")
+    # interpax uses one-sided differences in the edge cells, so stay out of them.
+    points = jnp.asarray(
+        rng.uniform([x[1], y[1], z[1]], [x[-2], y[-2], z[-2]], size=(500, 3))
     )
-    points = jnp.asarray(rng.uniform([0.9, -0.1, -1.1], [2.1, 0.7, 1.1], size=(500, 3)))
     np.testing.assert_allclose(
         jax.vmap(lambda p: ours(*p))(points),
         jax.vmap(lambda p: ref(*p))(points),
         rtol=0.0,
-        atol=1e-13,
+        atol=1e-12,
     )
     np.testing.assert_allclose(
         jax.vmap(jax.jacfwd(lambda p: ours(*p)))(points),
         jax.vmap(jax.jacfwd(lambda p: ref(*p)))(points),
         rtol=0.0,
-        atol=1e-11,
+        atol=1e-10,
     )
 
-
-def test_regular_grid_interpolator_matches_interpax_2d():
-    """The axisymmetric (R, Z) case agrees with interpax linear for a scalar field."""
-    import interpax
-
-    rng = np.random.default_rng(1)
-    x, z = jnp.linspace(1.0, 2.0, 7), jnp.linspace(-1.0, 1.0, 9)
-    f = jnp.asarray(rng.normal(size=(7, 9))).at[3, 4].set(jnp.nan)
-    ours = interpolate.RegularGridInterpolator(
-        lower=jnp.array([1.0, -1.0]), upper=jnp.array([2.0, 1.0]), f=f, fill=1.1
-    )
-    ref = interpax.Interpolator2D(
-        x, z, jnp.nan_to_num(f, nan=1.1), method="linear", extrap=1.1
-    )
-    points = jnp.asarray(rng.uniform([0.9, -1.1], [2.1, 1.1], size=(500, 2)))
+    # Grid nodes are reproduced, also in the edge cells.
+    nodes = jnp.stack(jnp.meshgrid(x, y, z, indexing="ij"), axis=-1).reshape(-1, 3)
     np.testing.assert_allclose(
-        jax.vmap(lambda p: ours(*p))(points),
-        jax.vmap(lambda p: ref(*p))(points),
-        rtol=0.0,
-        atol=1e-13,
+        jax.vmap(lambda p: ours(*p))(nodes), f.reshape(-1, 3), rtol=0, atol=1e-13
     )
+
+    with_nan = interpolate.GridInterpolator(
+        lower=ours.lower,
+        upper=ours.upper,
+        f=f.at[3, 2, 4].set(jnp.nan),
+        mirror_sign=jnp.array(1.0),
+        fill=0.5,
+    )
+    np.testing.assert_allclose(with_nan(x[3], y[2], z[4]), 0.5, rtol=0, atol=1e-13)
+    np.testing.assert_array_equal(with_nan(jnp.array(2.1), y[2], z[4]), 0.5)
+
+
+def test_rho_interpolator_reproduces_the_tokamak_rho(tokamak_magnetic_configuration):
+    """rho^2 is quadratic in (R, Z) for the circular tokamak, so the cubic is exact.
+
+    Interpolating rho itself would be inexact around the cone at the magnetic axis.
+    """
+    rho_interp = build_rho_interpolator(tokamak_magnetic_configuration)
+    rng = np.random.default_rng(2)
+    # Away from the clamped edge cells of the grid [1.5, 4.5] x [-1.5, 1.5].
+    r = jnp.asarray(rng.uniform(1.7, 4.3, 500))
+    z = jnp.asarray(rng.uniform(-1.3, 1.3, 500))
+    np.testing.assert_allclose(
+        jax.vmap(rho_interp)(r, z),
+        jnp.sqrt((r - 3.0) ** 2 + z**2),
+        rtol=1e-10,
+        atol=1e-6,  # the square root is clamped at rho = 1e-6
+    )
+
+
+def test_field_and_rho_are_smooth_across_the_stellarator_symmetry_planes():
+    """Value and gradient of B and rho have no jump at phi = 0 and phi = pi/nfp.
+
+    The grid only covers the fundamental domain [0, pi/nfp]; the stencil reads the
+    stellarator-mirrored planes beyond it.
+    """
+    from raytrax.tracer.buffers import Interpolators
+    from raytrax.tracer.solver import _eval_magnetic_field, _eval_rho
+
+    nfp = 5
+    r_grid = jnp.linspace(4.5, 6.5, 30)
+    phi_grid = jnp.linspace(0.0, jnp.pi / nfp, 12)
+    z_grid = jnp.linspace(-1.0, 1.0, 31)
+    r, phi, z = jnp.meshgrid(r_grid, phi_grid, z_grid, indexing="ij")
+    # Stellarator symmetric: B_R odd, B_phi, B_Z and rho even under (phi, Z) -> -(phi, Z).
+    s, c = jnp.sin(nfp * phi), jnp.cos(nfp * phi)
+    magnetic_field = jnp.stack(
+        [s * jnp.cos(z) + 0.3 * z * c * r, 2.0 + 0.2 * c * r, s * z + 0.1 * c * r],
+        axis=-1,
+    )
+    rho = jnp.sqrt((r - 5.5 - 0.1 * c) ** 2 + (z - 0.1 * s) ** 2 + 0.01)
+    mc = MagneticConfiguration(
+        rphiz=jnp.stack([r, phi, z], axis=-1),
+        magnetic_field=magnetic_field,
+        rho=rho,
+        nfp=nfp,
+        is_stellarator_symmetric=True,
+        rho_1d=jnp.linspace(0, 1, 5),
+        dvolume_drho=jnp.ones(5),
+    )
+    interpolators = Interpolators(
+        magnetic_field=build_magnetic_field_interpolator(mc),
+        rho=build_rho_interpolator(mc),
+        electron_density=build_electron_density_profile_interpolator(
+            RadialProfiles(
+                rho=jnp.linspace(0, 1, 5),
+                electron_density=jnp.ones(5),
+                electron_temperature=jnp.ones(5),
+            )
+        ),
+        electron_temperature=build_electron_temperature_profile_interpolator(
+            RadialProfiles(
+                rho=jnp.linspace(0, 1, 5),
+                electron_density=jnp.ones(5),
+                electron_temperature=jnp.ones(5),
+            )
+        ),
+    )
+
+    def both(position):
+        return jnp.append(
+            _eval_magnetic_field(position, interpolators, nfp),
+            _eval_rho(position, interpolators, nfp),
+        )
+
+    def position(phi_value):
+        return jnp.array([5.3 * jnp.cos(phi_value), 5.3 * jnp.sin(phi_value), 0.37])
+
+    eps = 1e-9
+    for plane in (0.0, jnp.pi / nfp):
+        below, above = position(plane - eps), position(plane + eps)
+        np.testing.assert_allclose(both(below), both(above), rtol=0, atol=1e-8)
+        np.testing.assert_allclose(
+            jax.jacfwd(both)(below), jax.jacfwd(both)(above), rtol=0, atol=1e-6
+        )
+
+
+def test_grid_interpolator_compiles_once_outside_jit(tokamak_magnetic_configuration):
+    """Calls outside jit, as in sampling loops, reuse one compiled evaluation."""
+    rho_interp = build_rho_interpolator(tokamak_magnetic_configuration)
+    rho_interp(3.2, 0.1)
+    compiled = interpolate.GridInterpolator.__call__._cache_size()
+    for r in np.linspace(2.0, 4.0, 5):
+        rho_interp(float(r), 0.3)
+    assert interpolate.GridInterpolator.__call__._cache_size() == compiled

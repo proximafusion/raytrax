@@ -16,7 +16,7 @@ from .equilibrium.interpolate import (
 )
 from .tracer.buffers import Interpolators, TraceBuffers
 from .tracer.ray import RaySetting
-from .tracer.solver import _ARC_LENGTH_TOLERANCE, _hamiltonian_scales, trace_jitted
+from .tracer.solver import _ARC_LENGTH_TOLERANCE, _hamiltonian_scale, trace_jitted
 from .types import (
     Beam,
     BeamProfile,
@@ -235,7 +235,7 @@ def _run_trace(
         ),
         is_axisymmetric=magnetic_configuration.is_axisymmetric,
     )
-    launch_hamiltonian = _hamiltonian_scales(
+    launch_hamiltonian = _hamiltonian_scale(
         jnp.concatenate([jnp.asarray(beam.position), jnp.asarray(beam.direction)]),
         (setting, interpolators, magnetic_configuration.nfp, settings),
     ).value

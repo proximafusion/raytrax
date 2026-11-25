@@ -60,4 +60,4 @@ grid = raytrax.VmecGridResolution(
 mag_conf = raytrax.MagneticConfiguration.from_vmec_wout(vmec_wout, grid=grid)
 ```
 
-The defaults (`n_r=45`, `n_z=55`, `n_phi=50`, `n_rho=40`, `n_theta=45`) are adequate for most stellarator geometries. The accuracy of the ray tracer is set by the cylindrical grid, between whose nodes $\rho$ and $\boldsymbol{B}$ are interpolated linearly. Refining it costs memory and import time, which scale roughly as $n_r \cdot n_\phi \cdot n_z$. `n_rho` and `n_theta` only set the extent of the grid and have little effect on accuracy.
+The defaults (`n_r=95`, `n_z=105`, `n_phi=50`, `n_rho=40`, `n_theta=45`) are adequate for most stellarator geometries. The accuracy of the ray tracer is set by the cylindrical grid. Between its nodes, $\boldsymbol{B}$ and $\rho^2$ are interpolated with Catmull-Rom splines, which have continuous first derivatives, so gradients through the ray tracer are correct. Refining it costs memory and import time, which scale roughly as $n_r \cdot n_\phi \cdot n_z$. `n_rho` and `n_theta` only set the extent of the grid and have little effect on accuracy.
