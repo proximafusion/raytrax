@@ -1,6 +1,7 @@
 """Tests for the raytrax.api module."""
 
 import functools
+import warnings
 from dataclasses import replace
 
 import jax
@@ -491,8 +492,9 @@ def test_launched_on_hamiltonian_flags_launches_off_the_dispersion_surface(
 ):
     """H is conserved along the ray, so a launch with H != 0 stays off the surface.
 
-    In vacuum H = |N|^2 - 1: only a unit vector is on the surface. Inside the plasma
-    the unit vector does not satisfy the dispersion relation.
+    In vacuum H = |N|^2 - 1, and the ray starts with the unit vector along
+    Beam.direction, whatever its length. Inside the plasma the unit vector does not
+    satisfy the dispersion relation, and trace warns.
     """
     inside, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
     in_vacuum = replace(inside, position=jnp.array([4.1, 0.0, 0.0]))
@@ -508,10 +510,66 @@ def test_launched_on_hamiltonian_flags_launches_off_the_dispersion_surface(
         )
 
     assert launched_on_hamiltonian(in_vacuum)
-    assert not launched_on_hamiltonian(
-        replace(in_vacuum, direction=(1 + 1e-5) * in_vacuum.direction)
+    assert launched_on_hamiltonian(
+        replace(in_vacuum, direction=(1 + 1e-3) * in_vacuum.direction)
     )
     assert not launched_on_hamiltonian(inside)
+
+    settings = TracerSettings(max_arc_length=0.05)
+    with pytest.warns(RuntimeWarning, match="does not start in vacuum"):
+        trace(tokamak_magnetic_configuration, profiles, inside, settings=settings)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*does not start in vacuum.*")
+        with pytest.warns(RuntimeWarning, match="max_arc_length"):
+            trace(
+                tokamak_magnetic_configuration, profiles, in_vacuum, settings=settings
+            )
+
+
+def test_length_of_beam_direction_has_no_effect(tokamak_magnetic_configuration):
+    """The ray starts with the unit vector along Beam.direction.
+
+    A launch vector of another length would put the ray on H = |N|^2 - 1 != 0 for its
+    whole path. With the scaling, the derivative with respect to the direction has no
+    component along it.
+    """
+    _, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+    unit = jnp.array([-1.0, 0.3, 0.2]) / jnp.linalg.norm(jnp.array([-1.0, 0.3, 0.2]))
+    beam = Beam(
+        position=jnp.array([4.3, 0.0, 0.0]),
+        direction=unit,
+        frequency=140e9,
+        mode="O",
+        power=1e6,
+    )
+
+    def run(direction):
+        return trace(
+            tokamak_magnetic_configuration,
+            profiles,
+            replace(beam, direction=direction),
+            trim=False,
+        )
+
+    def optical_depth(direction):
+        tau = run(direction).beam_profile.optical_depth
+        return jnp.max(jnp.where(jnp.isfinite(tau), tau, 0.0))
+
+    # A factor of two is exact in floating point, so both launches start with the
+    # same unit vector to the last bit. Any other factor changes it by rounding,
+    # which moves the adaptive steps and the saved points with them.
+    reference, scaled = jax.jit(run)(unit), jax.jit(run)(2.0 * unit)
+    assert reference.launched_on_hamiltonian and scaled.launched_on_hamiltonian
+    assert float(reference.optical_depth) > 1.0
+    np.testing.assert_array_equal(scaled.optical_depth, reference.optical_depth)
+    np.testing.assert_array_equal(
+        scaled.beam_profile.position, reference.beam_profile.position
+    )
+
+    gradient = np.asarray(jax.jit(jax.grad(optical_depth))(unit))
+    along = float(gradient @ np.asarray(unit))
+    assert np.linalg.norm(gradient) > 1e-3
+    assert abs(along) < 1e-8 * np.linalg.norm(gradient)
 
 
 def test_tracer_settings_non_default_runs_under_jit(tokamak_magnetic_configuration):

@@ -91,9 +91,9 @@ class Beam:
     """The starting position of the beam in cartesian coordinates."""
 
     direction: jt.Float[jax.Array, "3"]
-    """The refractive index vector N = ck/ω at the starting position, in cartesian
-    coordinates. In vacuum it is the unit vector along the beam. Whether it satisfies
-    the dispersion relation at the starting position is reported in
+    """The starting direction of the beam in cartesian coordinates. `trace` scales it
+    to a unit vector, the refractive index vector N = ck/ω of a wave in vacuum; its
+    length has no effect. The beam has to start in vacuum, see
     `TraceResult.launched_on_hamiltonian`."""
 
     frequency: jt.Float[jax.Array, ""]
@@ -203,8 +203,10 @@ class TraceResult:
 
     launched_on_hamiltonian: jt.Bool[jax.Array, ""]
     """Whether the beam starts on the dispersion surface: the ray-tracing Hamiltonian
-    H at `Beam.position` and `Beam.direction` is zero to 1e-6. H is conserved along
-    the ray, so a ray for which this is not set stays off the dispersion surface."""
+    H at `Beam.position`, for the unit vector along `Beam.direction`, is zero to
+    1e-6. That is the case for a launch from vacuum, the only one supported. H is
+    conserved along the ray, so a ray for which this is not set stays off the
+    dispersion surface."""
 
 
 @jax.tree_util.register_dataclass

@@ -68,7 +68,7 @@ profiles = raytrax.RadialProfiles(
 )
 ```
 
-The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a unit 3-vector for a launch from vacuum; in general the refractive index vector $\boldsymbol{n}$ at the starting position, see `TraceResult.launched_on_hamiltonian`), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:
+The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a 3-vector, which `trace` scales to unit length; the beam has to start in vacuum, see `TraceResult.launched_on_hamiltonian`), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:
 
 ```python
 import raytrax, jax.numpy as jnp

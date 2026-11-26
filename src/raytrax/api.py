@@ -220,9 +220,15 @@ def _run_trace(
 ) -> tuple[TraceBuffers, jax.Array, jax.Array]:
     """Build interpolators and run the JIT-compiled ODE solve.
 
+    The ray starts with the unit vector along `beam.direction` as its refractive
+    index vector, which is on the dispersion surface in vacuum.
+
     Returns the trace buffers, the number of valid entries and the Hamiltonian at
     the launch point.
     """
+    position = jnp.asarray(beam.position)
+    direction = jnp.asarray(beam.direction)
+    refractive_index = direction / jnp.linalg.norm(direction)
     setting = RaySetting(
         frequency=beam.frequency, mode=beam.mode, max_harmonic=beam.max_harmonic
     )
@@ -236,12 +242,12 @@ def _run_trace(
         is_axisymmetric=magnetic_configuration.is_axisymmetric,
     )
     launch_hamiltonian = _hamiltonian_scale(
-        jnp.concatenate([jnp.asarray(beam.position), jnp.asarray(beam.direction)]),
+        jnp.concatenate([position, refractive_index]),
         (setting, interpolators, magnetic_configuration.nfp, settings),
     ).value
     buffers, n_valid = trace_jitted(
-        jnp.asarray(beam.position),
-        jnp.asarray(beam.direction),
+        position,
+        refractive_index,
         setting,
         interpolators,
         magnetic_configuration.nfp,
@@ -275,8 +281,10 @@ def trace(
 
     Warns:
         RuntimeWarning: If `trim=True` and the solve stopped before the ray left the
-            plasma or was absorbed. With `trim=False` only `TraceResult.incomplete`
-            is set, so the call stays traceable under `jax.jit` and `jax.grad`.
+            plasma or was absorbed, or the beam does not start in vacuum. With
+            `trim=False` only `TraceResult.incomplete` and
+            `TraceResult.launched_on_hamiltonian` are set, so the call stays
+            traceable under `jax.jit` and `jax.grad`.
     """
     result, n_valid, launch_hamiltonian = _run_trace(
         magnetic_configuration, radial_profiles, beam, settings
@@ -339,6 +347,15 @@ def trace(
     # Slice on the host: eager JAX slicing to a new length n compiles a program per
     # op and length, so every new trajectory length would recompile.
     result = jax.device_get(result)
+    if not bool(launched_on_hamiltonian):
+        warnings.warn(
+            "The beam does not start in vacuum: the ray-tracing Hamiltonian at "
+            f"Beam.position is {float(launch_hamiltonian):.3g} instead of zero. Only "
+            "a launch from vacuum is supported; this ray is traced off the dispersion "
+            "surface.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     if bool(result.incomplete):
         s_end = float(result.arc_length[n - 1])
         if bool(result.stopped_at_resonance):
