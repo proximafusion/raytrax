@@ -59,3 +59,6 @@ class TraceBuffers:
     was absorbed or left the domain)."""
     stopped_at_resonance: jt.Bool[jax.Array, ""]
     """Whether the ray was stopped at a resonance of the cold dispersion relation."""
+    ran_out_of_steps: jt.Bool[jax.Array, ""]
+    """Whether the solve used up `TracerSettings.max_steps`, which counts rejected
+    steps as well, so fewer points than that may have been saved."""

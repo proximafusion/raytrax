@@ -601,6 +601,9 @@ def trace_jitted(
             linear_power_density=diag.linear_power_density,
             incomplete=jnp.asarray(incomplete),
             stopped_at_resonance=jnp.asarray(stopped_at_resonance),
+            ran_out_of_steps=jnp.asarray(
+                sol.result == diffrax.RESULTS.max_steps_reached
+            ),
         ),
         n_valid,
     )

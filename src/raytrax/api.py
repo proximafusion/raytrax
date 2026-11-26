@@ -364,7 +364,7 @@ def trace(
                 "(upper-hybrid layer, TracerSettings.max_refractive_index_perp="
                 f"{settings.max_refractive_index_perp:g})"
             )
-        elif n == settings.max_steps + 1:
+        elif bool(result.ran_out_of_steps):
             cause = f"ran out of steps (TracerSettings.max_steps={settings.max_steps})"
         elif s_end >= settings.max_arc_length - _ARC_LENGTH_TOLERANCE:
             cause = (
