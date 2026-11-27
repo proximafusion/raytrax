@@ -17,9 +17,18 @@ from raytrax.api import (
     trace,
 )
 from raytrax.equilibrium.fourier import dvolume_drho
-from raytrax.equilibrium.interpolate import MagneticConfiguration
+from raytrax.equilibrium.interpolate import (
+    MagneticConfiguration,
+    build_electron_density_profile_interpolator,
+    build_electron_temperature_profile_interpolator,
+    build_magnetic_field_interpolator,
+    build_rho_interpolator,
+)
 from raytrax.examples import w7x
 from raytrax.physics import dispersion, quantities
+from raytrax.tracer import solver
+from raytrax.tracer.buffers import Interpolators
+from raytrax.tracer.ray import RaySetting
 from raytrax.types import Beam, RadialProfiles, TracerSettings
 
 
@@ -1174,3 +1183,46 @@ def test_x1_ray_absorbs_after_crossing_parallel_light_line(w7x_magnetic_configur
     assert len(bp.arc_length) < 200
     np.testing.assert_allclose(result.optical_depth, np.log(1000), atol=1e-5, rtol=0)
     np.testing.assert_allclose(bp.arc_length[-1], 1.248, atol=0.002, rtol=0)
+
+
+def test_step_times_carry_no_derivative(tokamak_magnetic_configuration):
+    """Only the end of the ray depends on the launch; the step times do not.
+
+    The step times are chosen by the controller. Their derivative would only be that
+    of the discretisation error; while they carried one, the derivative of the
+    deposition changed with the number of checkpoints of the reverse pass, and
+    forward mode differed from it by up to 20 %. The end time is set by the
+    termination event and must depend on the launch.
+    """
+    beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+    interpolators = Interpolators(
+        magnetic_field=build_magnetic_field_interpolator(
+            tokamak_magnetic_configuration
+        ),
+        rho=build_rho_interpolator(tokamak_magnetic_configuration),
+        electron_density=build_electron_density_profile_interpolator(profiles),
+        electron_temperature=build_electron_temperature_profile_interpolator(profiles),
+        is_axisymmetric=True,
+    )
+    setting = RaySetting(frequency=beam.frequency, mode=beam.mode)
+    settings = TracerSettings(max_steps=512)
+
+    def step_times(theta):
+        direction = jnp.array([-jnp.cos(theta), jnp.sin(theta), 0.0])
+        return solver._solve(
+            jnp.asarray(beam.position),
+            direction,
+            setting,
+            interpolators,
+            tokamak_magnetic_configuration.nfp,
+            settings,
+        ).ts
+
+    theta = 0.3
+    times = step_times(theta)
+    n = int(jnp.sum(jnp.isfinite(times)))
+    # Reverse mode, as jax.grad uses.
+    derivative = jax.jit(jax.jacrev(step_times))(theta)
+    assert n > 20
+    np.testing.assert_array_equal(derivative[: n - 1], 0.0)
+    assert derivative[n - 1] != 0.0
