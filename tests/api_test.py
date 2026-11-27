@@ -1188,11 +1188,10 @@ def test_x1_ray_absorbs_after_crossing_parallel_light_line(w7x_magnetic_configur
 def test_step_times_carry_no_derivative(tokamak_magnetic_configuration):
     """Only the end of the ray depends on the launch; the step times do not.
 
-    The step times are chosen by the controller. Their derivative would only be that
-    of the discretisation error; while they carried one, the derivative of the
-    deposition changed with the number of checkpoints of the reverse pass, and
-    forward mode differed from it by up to 20 %. The end time is set by the
-    termination event and must depend on the launch.
+    The step times are chosen by the controller, so derivatives are those of the
+    discrete solve on a fixed time grid and do not depend on the number of
+    checkpoints of the reverse pass. The end time is set by the termination event
+    and depends on the launch.
     """
     beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
     interpolators = Interpolators(

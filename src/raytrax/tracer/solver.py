@@ -367,9 +367,9 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
         scale_0 = jax.tree_util.tree_map(
             lambda new, old: jnp.where(keep_step, new, old), scale, scale_0
         )
-        # The step times are a numerical choice of the integrator, and not physical.
-        # diffrax's PID controller stops the gradient of its step factor for the same
-        # reason, otherwhise it enters the arc-length element in reverse mode diff
+        # The step times are a numerical choice of the integrator. The step limit
+        # depends on the state through ∂H/∂N; with the gradient stopped, derivatives
+        # are those of the discrete solve on a fixed time grid.
         t0_next = jax.lax.stop_gradient(t0_next)
         t1_next = jax.lax.stop_gradient(t1_next)
         return keep_step, t0_next, t1_next, made_jump, (pid_state, scale_0), result
