@@ -32,7 +32,9 @@ profiles = raytrax.RadialProfiles(
 )
 beam = raytrax.Beam(
     position=jnp.array([6.6, 0.0, 0.0]),
-    direction=jnp.array([-0.985, 0.0, -0.174]),
+    direction=jnp.array(
+        [-jnp.cos(jnp.deg2rad(10.0)), 0.0, -jnp.sin(jnp.deg2rad(10.0))]
+    ),
     frequency=140e9,
     mode="O",
     power=1e6,

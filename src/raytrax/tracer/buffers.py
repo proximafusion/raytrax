@@ -46,7 +46,8 @@ class TraceBuffers:
     """
 
     arc_length: jt.Float[jax.Array, " nsteps"]
-    ode_state: jt.Float[jax.Array, "nsteps 7"]
+    ode_state: jt.Float[jax.Array, "nsteps 8"]
+    """(position, refractive index, optical depth, arc length) at each step."""
     magnetic_field: jt.Float[jax.Array, "nsteps 3"]
     normalized_effective_radius: jt.Float[jax.Array, " nsteps"]
     electron_density: jt.Float[jax.Array, " nsteps"]
@@ -56,3 +57,8 @@ class TraceBuffers:
     incomplete: jt.Bool[jax.Array, ""]
     """Whether the solve ended without a termination event (ray left the plasma,
     was absorbed or left the domain)."""
+    stopped_at_resonance: jt.Bool[jax.Array, ""]
+    """Whether the ray was stopped at a resonance of the cold dispersion relation."""
+    ran_out_of_steps: jt.Bool[jax.Array, ""]
+    """Whether the solve used up `TracerSettings.max_steps`, which counts rejected
+    steps as well, so fewer points than that may have been saved."""

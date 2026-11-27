@@ -16,7 +16,7 @@ from .equilibrium.interpolate import (
 )
 from .tracer.buffers import Interpolators, TraceBuffers
 from .tracer.ray import RaySetting
-from .tracer.solver import trace_jitted
+from .tracer.solver import _ARC_LENGTH_TOLERANCE, _hamiltonian_scale, trace_jitted
 from .types import (
     Beam,
     BeamProfile,
@@ -177,6 +177,11 @@ def _bin_power_deposition(
     return jnp.where(is_degenerate, jnp.zeros_like(result), result)
 
 
+_LAUNCH_HAMILTONIAN_TOLERANCE = 1e-6
+"""Largest |H| at the launch point for which `TraceResult.launched_on_hamiltonian` is
+set. H is conserved along the ray, so a ray launched off the dispersion surface stays
+off it by the same amount."""
+
 _MIN_DEPOSITED_FRACTION = 1e-12
 """Deposited power fraction below which the deposition statistics are undefined."""
 
@@ -212,8 +217,18 @@ def _run_trace(
     radial_profiles: RadialProfiles,
     beam: Beam,
     settings: TracerSettings,
-) -> tuple[TraceBuffers, jax.Array]:
-    """Build interpolators and run the JIT-compiled ODE solve."""
+) -> tuple[TraceBuffers, jax.Array, jax.Array]:
+    """Build interpolators and run the JIT-compiled ODE solve.
+
+    The ray starts with the unit vector along `beam.direction` as its refractive
+    index vector, which is on the dispersion surface in vacuum.
+
+    Returns the trace buffers, the number of valid entries and the Hamiltonian at
+    the launch point.
+    """
+    position = jnp.asarray(beam.position)
+    direction = jnp.asarray(beam.direction)
+    refractive_index = direction / jnp.linalg.norm(direction)
     setting = RaySetting(
         frequency=beam.frequency, mode=beam.mode, max_harmonic=beam.max_harmonic
     )
@@ -226,14 +241,19 @@ def _run_trace(
         ),
         is_axisymmetric=magnetic_configuration.is_axisymmetric,
     )
-    return trace_jitted(
-        jnp.asarray(beam.position),
-        jnp.asarray(beam.direction),
+    launch_hamiltonian = _hamiltonian_scale(
+        jnp.concatenate([position, refractive_index]),
+        (setting, interpolators, magnetic_configuration.nfp, settings),
+    ).value
+    buffers, n_valid = trace_jitted(
+        position,
+        refractive_index,
         setting,
         interpolators,
         magnetic_configuration.nfp,
         settings,
     )
+    return buffers, n_valid, launch_hamiltonian
 
 
 def trace(
@@ -261,11 +281,16 @@ def trace(
 
     Warns:
         RuntimeWarning: If `trim=True` and the solve stopped before the ray left the
-            plasma or was absorbed. With `trim=False` only `TraceResult.incomplete`
-            is set, so the call stays traceable under `jax.jit` and `jax.grad`.
+            plasma or was absorbed, or the beam does not start in vacuum. With
+            `trim=False` only `TraceResult.incomplete` and
+            `TraceResult.launched_on_hamiltonian` are set, so the call stays
+            traceable under `jax.jit` and `jax.grad`.
     """
-    result, n_valid = _run_trace(
+    result, n_valid, launch_hamiltonian = _run_trace(
         magnetic_configuration, radial_profiles, beam, settings
+    )
+    launched_on_hamiltonian = (
+        jnp.abs(launch_hamiltonian) <= _LAUNCH_HAMILTONIAN_TOLERANCE
     )
 
     if not trim:
@@ -311,6 +336,8 @@ def trace(
             deposition_rho_mean=rho_mean,
             deposition_rho_std=rho_std,
             incomplete=result.incomplete,
+            stopped_at_resonance=result.stopped_at_resonance,
+            launched_on_hamiltonian=launched_on_hamiltonian,
         )
 
     # Trim to valid (finite) arc-length entries; diffrax leaves unvisited
@@ -320,11 +347,26 @@ def trace(
     # Slice on the host: eager JAX slicing to a new length n compiles a program per
     # op and length, so every new trajectory length would recompile.
     result = jax.device_get(result)
+    if not bool(launched_on_hamiltonian):
+        warnings.warn(
+            "The beam does not start in vacuum: the ray-tracing Hamiltonian at "
+            f"Beam.position is {float(launch_hamiltonian):.3g} instead of zero. Only "
+            "a launch from vacuum is supported; this ray is traced off the dispersion "
+            "surface.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     if bool(result.incomplete):
         s_end = float(result.arc_length[n - 1])
-        if n == settings.max_steps + 1:
+        if bool(result.stopped_at_resonance):
+            cause = (
+                "stopped the ray at a resonance of the cold dispersion relation "
+                "(upper-hybrid layer, TracerSettings.max_refractive_index_perp="
+                f"{settings.max_refractive_index_perp:g})"
+            )
+        elif bool(result.ran_out_of_steps):
             cause = f"ran out of steps (TracerSettings.max_steps={settings.max_steps})"
-        elif s_end >= settings.max_arc_length:
+        elif s_end >= settings.max_arc_length - _ARC_LENGTH_TOLERANCE:
             cause = (
                 f"reached TracerSettings.max_arc_length={settings.max_arc_length:g} m"
             )
@@ -382,4 +424,6 @@ def trace(
         deposition_rho_mean=rho_mean,
         deposition_rho_std=rho_std,
         incomplete=jnp.asarray(result.incomplete),
+        stopped_at_resonance=jnp.asarray(result.stopped_at_resonance),
+        launched_on_hamiltonian=launched_on_hamiltonian,
     )

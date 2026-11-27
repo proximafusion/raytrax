@@ -1,4 +1,4 @@
-"""JIT-compiled ray tracing ODE solver: integrates position, refractive index, and optical depth via diffrax."""
+"""JIT-compiled ray tracing ODE solver: integrates position, refractive index, optical depth and arc length via diffrax."""
 
 from collections.abc import Callable
 from typing import NamedTuple, cast
@@ -121,22 +121,20 @@ def _eval_rho(
     return interpolators.rho(r, phi_mapped, z_query)
 
 
-def _y_to_state(
-    y: jt.Float[jax.Array, " n "],
-    s: float | int | jax.Array,
-) -> ray.RayState:
-    """Extract RayState from the 7-component ODE state vector.
+def _y_to_state(y: jt.Float[jax.Array, " n "]) -> ray.RayState:
+    """Extract RayState from the 8-component ODE state vector.
 
-    State vector structure (7 components):
+    State vector structure (8 components):
     - y[0:3]: position
     - y[3:6]: refractive_index
     - y[6]:   optical_depth
+    - y[7]:   arc_length
     """
     return ray.RayState(
         position=y[:3],
         refractive_index=y[3:6],
         optical_depth=y[6],
-        arc_length=jnp.array(s),
+        arc_length=y[7],
     )
 
 
@@ -144,13 +142,22 @@ def _y_to_state(
 # nested jit traces it once and reuses the jaxpr.
 @jax.jit
 def _right_hand_side(
-    s: float | int | jax.Array,
+    t: float | int | jax.Array,
     y: jt.Float[jax.Array, " n "],
     args: tuple,
 ) -> jt.Float[jax.Array, " n "]:
-    r"""Compute the right-hand side of the 7-component ray tracing ODE.
+    r"""Compute the right-hand side of the 8-component ray tracing ODE.
 
-    Integrates (r, N, τ) only. B, ρ, nₑ, Tₑ are not tracked in the ODE
+    The independent variable is the Hamiltonian time t: dr/dt = ∂H/∂N,
+    dN/dt = -∂H/∂r, dτ/dt = α |∂H/∂N|, ds/dt = |∂H/∂N|. Unlike the parametrisation
+    by the arc length s, which divides by |∂H/∂N|, this one stays regular where a
+    ray is reflected: there the group velocity, and with it ∂H/∂N, goes through
+    zero, r(t) turns around smoothly and the path has a cusp, at which s is not a
+    smooth coordinate. The arc length rides along as the last component: it is the
+    coordinate of the output profiles and of the `max_arc_length` stop, but it takes
+    no part in the step-size control (see `_error_norm`).
+
+    Integrates (r, N, τ, s) only. B, ρ, nₑ, Tₑ are not tracked in the ODE
     state — they are recomputed at output points via vectorised post-processing,
     which avoids the jacfwd(B) calls and the tight per-component tolerances that
     previously forced ~2 mm step sizes.
@@ -161,7 +168,7 @@ def _right_hand_side(
     """
     setting, interpolators, nfp, _ = args
 
-    state = _y_to_state(y, s)
+    state = _y_to_state(y)
 
     def eval_B(pos):
         return _eval_magnetic_field(pos, interpolators, nfp)
@@ -182,10 +189,7 @@ def _right_hand_side(
             setting.mode,
         )
     )
-    norm = jnp.linalg.norm(hamiltonian_gradient_n)
-
-    dr_ds = hamiltonian_gradient_n / norm
-    dn_ds = -hamiltonian_gradient_r / norm
+    ds_dt = jnp.linalg.norm(hamiltonian_gradient_n)
 
     te = interpolators.electron_temperature(hamiltonian_aux.rho)
     dtau_ds = absorption.absorption_coefficient_conditional(
@@ -198,11 +202,17 @@ def _right_hand_side(
         max_harmonic=setting.max_harmonic,
     )
 
-    return jnp.concatenate([dr_ds, dn_ds, jnp.array([dtau_ds])])
+    return jnp.concatenate(
+        [
+            hamiltonian_gradient_n,
+            -hamiltonian_gradient_r,
+            jnp.array([dtau_ds * ds_dt, ds_dt]),
+        ]
+    )
 
 
 class _HamiltonianScale(NamedTuple):
-    r"""$H$ at an ODE state and the scale that converts it to a frequency mismatch."""
+    r"""$H$ at an ODE state with the scales the step-size control needs."""
 
     value: jt.Float[jax.Array, ""]
     r"""$H$."""
@@ -210,13 +220,18 @@ class _HamiltonianScale(NamedTuple):
     r"""$\omega\,\partial H/\partial\omega$ at fixed wave vector. `value / frequency_scale`
     is the relative frequency mismatch $\delta\omega/\omega$ by which the wave is off
     the dispersion surface."""
+    velocity: jt.Float[jax.Array, "3"]
+    r"""$\partial H/\partial\boldsymbol{N} = d\boldsymbol{r}/dt$, the velocity of the
+    ray in Hamiltonian time; its norm is the arc length per unit of Hamiltonian
+    time."""
 
 
 def _hamiltonian_scale(
     y: jt.Float[jax.Array, " n "],
     args: tuple,
 ) -> _HamiltonianScale:
-    r"""Evaluate $H$ and $\omega\,\partial H/\partial\omega$ at fixed wave vector."""
+    r"""Evaluate $H$, $\omega\,\partial H/\partial\omega$ at fixed wave vector and
+    $\partial H/\partial\boldsymbol{N}$."""
     setting, interpolators, nfp, _ = args
     frequency = jnp.asarray(setting.frequency, dtype=float)
 
@@ -236,7 +251,17 @@ def _hamiltonian_scale(
     )
     # N = c k / ω: at fixed k, N scales with 1 / ω as well.
     frequency_scale = frequency * dh_dfrequency - jnp.dot(y[3:6], gradient_n)
-    return _HamiltonianScale(value, frequency_scale)
+    return _HamiltonianScale(value, frequency_scale, gradient_n)
+
+
+def _error_norm(scaled_error: jt.Float[jax.Array, " n "]) -> jt.Float[jax.Array, ""]:
+    """RMS norm of the scaled error estimate over (r, N, τ), leaving out the arc length.
+
+    The arc length is an output, not a dynamical variable: its error does not feed
+    back into the ray, and keeping it out of the norm leaves the step sequence the
+    same as that of the state without it.
+    """
+    return optx.rms_norm(scaled_error[:7])
 
 
 class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
@@ -247,42 +272,70 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
     embedded error estimate misses the layer while $H$ changes. The change of $H$ over
     the step is converted to the relative frequency mismatch
     $|\Delta H| / |\omega\,\partial H/\partial\omega|$ it amounts to, which does not
-    depend on how $H$ is written, weighted and added to the error of $\boldsymbol{N}$.
-    In vacuum it equals the change of $|\boldsymbol{N}|$.
+    depend on how $H$ is written or on the parametrisation of the ray, weighted and
+    added to the error of $\boldsymbol{N}$. In vacuum it equals the change of
+    $|\boldsymbol{N}|$.
+
+    The ODE runs in Hamiltonian time, while the step limits are arc lengths in
+    metres: the initial step and the maximum step are divided by
+    $ds/dt = |\partial H/\partial\boldsymbol{N}|$. Where a ray is reflected $ds/dt$
+    goes through zero, so the step predicted from $ds/dt$ at the start of a step can
+    turn out longer than the maximum; a step whose arc length (the increment of the
+    integrated $s$) exceeds it by more than half is rejected and shortened in
+    proportion.
     """
 
     pid: diffrax.PIDController
     weight: jt.Float[jax.Array, ""]
+    max_step_size: jt.Float[jax.Array, ""]
     # Required by AbstractAdaptiveStepSizeController; copied from the PID controller.
     rtol: int | float | jax.Array | np.ndarray
     atol: int | float | jax.Array | np.ndarray
     norm: Callable
 
-    def __init__(self, pid: diffrax.PIDController, weight: jt.Float[jax.Array, ""]):
+    def __init__(
+        self,
+        pid: diffrax.PIDController,
+        weight: jt.Float[jax.Array, ""],
+        max_step_size: jt.Float[jax.Array, ""],
+    ):
         self.pid = pid
         self.weight = weight
+        self.max_step_size = max_step_size
         self.rtol = pid.rtol
         self.atol = pid.atol
         self.norm = pid.norm
 
     def wrap(self, direction):
-        return _DispersionAwareController(self.pid.wrap(direction), self.weight)
+        return _DispersionAwareController(
+            self.pid.wrap(direction), self.weight, self.max_step_size
+        )
 
     def init(self, terms, t0, t1, y0, dt0, args, func, error_order):
+        scale = _hamiltonian_scale(y0, args)
         t1_next, pid_state = self.pid.init(
-            terms, t0, t1, y0, dt0, args, func, error_order
+            terms,
+            t0,
+            t1,
+            y0,
+            dt0 / jnp.linalg.norm(scale.velocity),
+            args,
+            func,
+            error_order,
         )
-        # H at the start of the next step; reused until a step is accepted.
-        return t1_next, (pid_state, _hamiltonian_scale(y0, args).value)
+        # H and ∂H/∂N at the start of the next step; reused until a step is accepted.
+        return t1_next, (pid_state, scale)
 
     def adapt_step_size(
         self, t0, t1, y0, y1_candidate, args, y_error, error_order, controller_state
     ):
         assert y_error is not None  # Bosh3 provides an error estimate
-        pid_state, h0 = controller_state
+        pid_state, scale_0 = controller_state
         scale = _hamiltonian_scale(y1_candidate, args)
         frequency_error = (
-            self.weight * jnp.abs(scale.value - h0) / jnp.abs(scale.frequency_scale)
+            self.weight
+            * jnp.abs(scale.value - scale_0.value)
+            / jnp.abs(scale.frequency_scale)
         )
         # The PID scales each component by its own tolerance. Rescale so that the
         # added relative error is measured against the tolerance of a quantity of
@@ -299,8 +352,46 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
                 t0, t1, y0, y1_candidate, args, y_error, error_order, pid_state
             )
         )
-        h0 = jnp.where(keep_step, scale.value, h0)
-        return keep_step, t0_next, t1_next, made_jump, (pid_state, h0), result
+        arc_length = y1_candidate[7] - y0[7]
+        too_long = arc_length > 1.5 * self.max_step_size
+        keep_step = keep_step & ~too_long
+        t0_next = jnp.where(too_long, t0, t0_next)
+        t1_next = jnp.where(
+            too_long,
+            jnp.minimum(t1_next, t0 + (t1 - t0) * self.max_step_size / arc_length),
+            jnp.minimum(
+                t1_next,
+                t0_next + self.max_step_size / jnp.linalg.norm(scale.velocity),
+            ),
+        )
+        scale_0 = jax.tree_util.tree_map(
+            lambda new, old: jnp.where(keep_step, new, old), scale, scale_0
+        )
+        return keep_step, t0_next, t1_next, made_jump, (pid_state, scale_0), result
+
+
+# The cold dispersion relation has a resonance where 1 - X - Y² = 0 (the upper-hybrid
+# layer for perpendicular propagation): N_perp² of the slow X mode grows as the inverse
+# of the distance to the layer, the group velocity falls as N_perp⁻³ and the ray does
+# not reach the layer in finite time. The ray is stopped where N_perp reaches
+# TracerSettings.max_refractive_index_perp. Rays that do not approach a resonance stay
+# at N_perp of order one. Near the layer N_perp² = X (1 - X) / (X + Y² - 1) for
+# perpendicular propagation, so with the default of 10 the ray ends where
+# X + Y² - 1 = X (1 - X) / 100 < 0.0025; there k_perp rho_e = N_perp v_te / (c Y) is
+# already about 0.5 at 1 keV, and the cold dispersion relation no longer holds.
+#
+# The root find places the end of the ray on 1 - (N_perp / max)² = 0 to 1e-9.
+_RESONANCE_TOLERANCE = 1e-6
+
+
+def _cond_resonance(y, interpolators, nfp, tracer_settings):
+    """1 - (N_perp / TracerSettings.max_refractive_index_perp)² of the ODE state y."""
+    magnetic_field = _eval_magnetic_field(y[:3], interpolators, nfp)
+    n = y[3:6]
+    n_perp_squared = jnp.dot(n, n) - jnp.dot(n, magnetic_field) ** 2 / jnp.dot(
+        magnetic_field, magnetic_field
+    )
+    return 1.0 - n_perp_squared / tracer_settings.max_refractive_index_perp**2
 
 
 def _cond_terminate(t, y, args, **kwargs):
@@ -308,16 +399,32 @@ def _cond_terminate(t, y, args, **kwargs):
 
     - the ray exits the plasma (rho > 1.05),
     - the ray is fully absorbed (exp(-tau) < 1e-3),
-    - the ray leaves the computational domain (|r| > 20 m).
+    - the ray leaves the computational domain (|r| > 20 m),
+    - the arc length reaches TracerSettings.max_arc_length; the ray is then
+      incomplete, see `trace_jitted`,
+    - the ray runs into a resonance of the cold dispersion relation
+      (N_perp > TracerSettings.max_refractive_index_perp); the ray is then incomplete
+      and `TraceBuffers.stopped_at_resonance` is set.
     """
     return jnp.minimum(
         jnp.minimum(
-            1.05 - _eval_rho(y[:3], args[1], args[2]),
-            jnp.exp(-y[6]) - 1e-3,
+            jnp.minimum(
+                1.05 - _eval_rho(y[:3], args[1], args[2]),
+                jnp.exp(-y[6]) - 1e-3,
+            ),
+            jnp.minimum(
+                20.0 - jnp.linalg.norm(y[:3]),
+                args[3].max_arc_length - y[7],
+            ),
         ),
-        20.0 - jnp.linalg.norm(y[:3]),
+        _cond_resonance(y, args[1], args[2], args[3]),
     )
 
+
+# Resolution of the arc-length stop: the root finder below places the end of the ray
+# within 1e-9 units of Hamiltonian time of max_arc_length, i.e. within nanometres. A
+# ray whose final arc length is within this tolerance of the cap was stopped by it.
+_ARC_LENGTH_TOLERANCE = 1e-6
 
 # The root find stops the ray where the condition crosses zero rather than at the end
 # of the step that crossed it, so the end of the ray does not jump with the step
@@ -353,9 +460,11 @@ def _solve(
     automatically: the Hamiltonian switches to _hamiltonian_vacuum when ne=0,
     giving straight-line propagation until the beam enters plasma.
 
-    Output is saved at every accepted step (plus t0).  After an early-exit
-    event, diffrax leaves unvisited SaveAt slots as inf; sol.t1 is always the
-    scheduled t1 (max_arc_length), not the event time.
+    The independent variable is the Hamiltonian time, which has no bound of its
+    own: the solve ends at an event, on the termination conditions or at the arc
+    length max_arc_length, or when the step budget max_steps runs out. Output is
+    saved at every accepted step (plus t0). After the event, diffrax leaves
+    unvisited SaveAt slots as inf.
     """
     # PI rather than diffrax's default I controller: on the non-smooth right-hand side
     # the I controller rejects far more steps and is less accurate per evaluation.
@@ -363,21 +472,22 @@ def _solve(
         diffrax.PIDController(
             rtol=tracer_settings.relative_tolerance,
             atol=tracer_settings.absolute_tolerance,
-            dtmax=tracer_settings.max_step_size,
+            norm=_error_norm,
             # Allow progress across residual jumps of H at micrometre scale.
             dtmin=1e-6,
             pcoeff=0.4,
             icoeff=0.3,
         ),
         jnp.asarray(tracer_settings.dispersion_error_weight),
+        jnp.asarray(tracer_settings.max_step_size),
     )
-    y0 = jnp.concatenate([position, direction, jnp.array([0.0])])
+    y0 = jnp.concatenate([position, direction, jnp.array([0.0, 0.0])])
     return diffrax.diffeqsolve(
         terms=_term,
         solver=_solver,
         t0=0.0,
-        t1=tracer_settings.max_arc_length,
-        dt0=0.001,
+        t1=jnp.inf,
+        dt0=0.001,  # metres; the controller converts to Hamiltonian time
         y0=y0,
         args=(setting, interpolators, nfp, tracer_settings),
         saveat=diffrax.SaveAt(steps=True, t0=True),
@@ -400,14 +510,18 @@ class _BeamDiagnostics(NamedTuple):
 
 
 def _compute_beam_diagnostics(
-    ts: jt.Float[jax.Array, " nsteps"],
-    ys: jt.Float[jax.Array, "nsteps 7"],
+    ys: jt.Float[jax.Array, "nsteps 8"],
     interpolators: Interpolators,
     nfp: int,
 ) -> _BeamDiagnostics:
-    """Evaluate plasma quantities along the trajectory and derive absorption/power."""
+    """Evaluate plasma quantities along the trajectory and derive absorption/power.
+
+    The absorption coefficient of a segment is Δτ/Δs between consecutive saved
+    steps. Entries in the inf padding after the end of the ray stay non-finite.
+    """
     positions = ys[:, :3]
     optical_depths = ys[:, 6]
+    arc_lengths = ys[:, 7]
 
     B_all = jax.vmap(lambda pos: _eval_magnetic_field(pos, interpolators, nfp))(
         positions
@@ -416,7 +530,7 @@ def _compute_beam_diagnostics(
     ne_all = jax.vmap(interpolators.electron_density)(rho_all)
     te_all = jax.vmap(interpolators.electron_temperature)(rho_all)
 
-    ds = jnp.diff(ts)
+    ds = jnp.diff(arc_lengths)
     dtau = jnp.diff(optical_depths)
     alpha_interior = dtau / jnp.where(ds > 0, ds, 1.0)
     alpha_all = jnp.concatenate([alpha_interior[:1], alpha_interior])
@@ -452,11 +566,32 @@ def trace_jitted(
     sol = _solve(position, direction, setting, interpolators, nfp, tracer_settings)
     ts = cast(jax.Array, sol.ts)
     ys = cast(jax.Array, sol.ys)
-    diag = _compute_beam_diagnostics(ts, ys, interpolators, nfp)
+    diag = _compute_beam_diagnostics(ys, interpolators, nfp)
     n_valid = jnp.sum(jnp.isfinite(ts)).astype(jnp.int32)
+    # Complete only if the ray left the plasma, was absorbed or left the domain. The
+    # arc-length cap is a cutoff like the step budget: a ray stopped there, which the
+    # root find ends at the cap itself, is incomplete. So is a ray stopped at a
+    # resonance: the power it still carries is not followed any further.
+    s_end = jnp.max(jnp.where(jnp.isfinite(ys[:, 7]), ys[:, 7], -jnp.inf))
+    reached_max_arc_length = (
+        s_end >= tracer_settings.max_arc_length - _ARC_LENGTH_TOLERANCE
+    )
+    # A ray stopped at a resonance ends on the zero of that condition. Read from the
+    # end point rather than from the solver result: where N_perp² rises steeply the
+    # root find can end on the zero without meeting its own tolerance.
+    y_end = ys[jnp.maximum(n_valid - 1, 0)]
+    stopped_at_resonance = (
+        _cond_resonance(y_end, interpolators, nfp, tracer_settings)
+        <= _RESONANCE_TOLERANCE
+    )
+    incomplete = (
+        (sol.result != diffrax.RESULTS.event_occurred)
+        | reached_max_arc_length
+        | stopped_at_resonance
+    )
     return (
         TraceBuffers(
-            arc_length=ts,
+            arc_length=ys[:, 7],
             ode_state=ys,
             magnetic_field=diag.magnetic_field,
             normalized_effective_radius=diag.rho,
@@ -464,7 +599,11 @@ def trace_jitted(
             electron_temperature=diag.electron_temperature,
             absorption_coefficient=diag.absorption_coefficient,
             linear_power_density=diag.linear_power_density,
-            incomplete=jnp.asarray(sol.result != diffrax.RESULTS.event_occurred),
+            incomplete=jnp.asarray(incomplete),
+            stopped_at_resonance=jnp.asarray(stopped_at_resonance),
+            ran_out_of_steps=jnp.asarray(
+                sol.result == diffrax.RESULTS.max_steps_reached
+            ),
         ),
         n_valid,
     )

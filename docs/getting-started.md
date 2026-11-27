@@ -68,7 +68,7 @@ profiles = raytrax.RadialProfiles(
 )
 ```
 
-The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a unit 3-vector), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:
+The **[`Beam`][raytrax.types.Beam]** defines the properties of the microwave beam to be traced: its starting position (a vector in Cartesian coordinates), initial direction (a 3-vector, which `trace` scales to unit length; the beam has to start in vacuum, see `TraceResult.launched_on_hamiltonian`), frequency (in Hz, not GHz!), wave mode (ordinary or extraordinary mode), and initial power (in W). The optional `max_harmonic` parameter (default: `2`) sets the highest cyclotron harmonic included in the absorption calculation — increase it to `3` for third-harmonic scenarios. Example:
 
 ```python
 import raytrax, jax.numpy as jnp
@@ -104,7 +104,8 @@ The returned [`TraceResult`][raytrax.types.TraceResult] contains:
 - `absorbed_power_fraction` — fraction of the input beam power absorbed, i.e. $1 - e^{-\tau}$.
 - `optical_depth` — total optical depth $\tau$ accumulated along the ray.
 - `deposition_rho_mean` / `deposition_rho_std` — volume-weighted mean and standard deviation of the deposition location in $\rho$.
-- `incomplete` — whether the solve stopped before the ray left the plasma or was absorbed (out of steps, `max_arc_length` reached, or a solver failure); the absorbed power is then underestimated (see [Solver Settings](tuning.md)).
+- `incomplete` — whether the solve stopped before the ray left the plasma or was absorbed (out of steps, `max_arc_length` reached, stopped at a resonance, or a solver failure); the absorbed power is then underestimated (see [Solver Settings](tuning.md)).
+- `stopped_at_resonance` — whether the ray was stopped in front of the upper-hybrid resonance (see [limitations](limitations.md)).
 
 ## Jupyter Notebooks
 
