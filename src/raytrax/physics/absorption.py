@@ -16,6 +16,7 @@ from raytrax.physics import distribution_function, polarization, power_flux, qua
 from raytrax.types import ScalarFloat
 
 ScalarBool = bool | jt.Bool[jax.Array, " "]
+_MIN_TEMPERATURE_KEV = 0.01
 
 
 def absorption_coefficient_conditional(
@@ -49,7 +50,7 @@ def absorption_coefficient_conditional(
     Returns:
         Absorption coefficient alpha in m^-1.
     """
-    temperature_condition = electron_temperature_keV > 0.01
+    temperature_condition = electron_temperature_keV > _MIN_TEMPERATURE_KEV
     density_condition = electron_density_1e20_per_m3 > 0.0
     # Off resonance alpha is exactly zero; deciding that from a few scalars skips
     # the dielectric tensor, polarization and power flux, most of the cost.

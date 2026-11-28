@@ -10,7 +10,7 @@ import jaxtyping as jt
 import numpy as np
 import optimistix as optx
 
-from raytrax.physics import absorption, hamiltonian
+from raytrax.physics import absorption, hamiltonian, quantities
 from raytrax.tracer import ray
 from raytrax.tracer.buffers import Interpolators, TraceBuffers
 from raytrax.types import TracerSettings
@@ -224,6 +224,10 @@ class _HamiltonianScale(NamedTuple):
     r"""$\partial H/\partial\boldsymbol{N} = d\boldsymbol{r}/dt$, the velocity of the
     ray in Hamiltonian time; its norm is the arc length per unit of Hamiltonian
     time."""
+    cyclotron_ratio: jt.Float[jax.Array, ""]
+    """Local electron cyclotron frequency divided by the wave frequency."""
+    resonance_width: jt.Float[jax.Array, ""]
+    """Thermal and Doppler width in harmonic detuning, zero where absorption is off."""
 
 
 def _hamiltonian_scale(
@@ -244,14 +248,49 @@ def _hamiltonian_scale(
             interpolators.electron_density,
             frequency,
             setting.mode,
-        )[0]
+        )
 
-    value, (gradient_n, dh_dfrequency) = jax.value_and_grad(h, argnums=(0, 1))(
-        y[3:6], frequency
-    )
+    (value, aux), (gradient_n, dh_dfrequency) = jax.value_and_grad(
+        h, argnums=(0, 1), has_aux=True
+    )(y[3:6], frequency)
     # N = c k / ω: at fixed k, N scales with 1 / ω as well.
     frequency_scale = frequency * dh_dfrequency - jnp.dot(y[3:6], gradient_n)
-    return _HamiltonianScale(value, frequency_scale, gradient_n)
+    field_strength = jnp.linalg.norm(aux.magnetic_field)
+    cyclotron_ratio = (
+        quantities.electron_cyclotron_frequency(field_strength) / frequency
+    )
+    n_parallel = jnp.dot(y[3:6], aux.magnetic_field) / jnp.where(
+        field_strength > 0, field_strength, 1.0
+    )
+    te = interpolators.electron_temperature(aux.rho)
+    v_th = quantities.normalized_electron_thermal_velocity(jnp.maximum(te, 0.0))
+    # On the resonance s*f_ce/f = gamma - N_parallel*u_parallel. The bulk of a
+    # thermal distribution spans ~T/(m_e*c^2) + |N_parallel|*v_th in detuning.
+    width = 0.5 * v_th**2 + jnp.abs(n_parallel) * v_th
+    active = (te > absorption._MIN_TEMPERATURE_KEV) & (
+        aux.electron_density_1e20_per_m3 > 0
+    )
+    return _HamiltonianScale(
+        value,
+        frequency_scale,
+        gradient_n,
+        cyclotron_ratio,
+        jnp.where(active, width, 0.0),
+    )
+
+
+def _resonance_step_ratio(start, end, max_harmonic):
+    """Limit a step near any harmonic to half a thermal width in detuning."""
+    harmonics = jnp.arange(1, max_harmonic + 1)
+    lo = harmonics * jnp.minimum(start.cyclotron_ratio, end.cyclotron_ratio)
+    hi = harmonics * jnp.maximum(start.cyclotron_ratio, end.cyclotron_ratio)
+    # Distance from the step's detuning interval to resonance. A step crossing
+    # the harmonic has zero distance even if all the RK stages miss the layer.
+    distance = jnp.maximum(0.0, jnp.maximum(1.0 - hi, lo - 1.0))
+    width = jnp.maximum(start.resonance_width, end.resonance_width)
+    allowed = distance + jnp.where(width > 0, 0.5 * width, 1.0)
+    ratio = jnp.max((hi - lo) / allowed, initial=1.0)
+    return jnp.where(width > 0, ratio, 1.0)
 
 
 def _error_norm(scaled_error: jt.Float[jax.Array, " n "]) -> jt.Float[jax.Array, ""]:
@@ -353,12 +392,17 @@ class _DispersionAwareController(diffrax.AbstractAdaptiveStepSizeController):
             )
         )
         arc_length = y1_candidate[7] - y0[7]
-        too_long = arc_length > 1.5 * self.max_step_size
+        arc_ratio = arc_length / self.max_step_size
+        reduction = jnp.maximum(
+            jnp.where(arc_ratio > 1.5, arc_ratio, 1.0),
+            _resonance_step_ratio(scale_0, scale, args[0].max_harmonic),
+        )
+        too_long = reduction > 1.0
         keep_step = keep_step & ~too_long
         t0_next = jnp.where(too_long, t0, t0_next)
         t1_next = jnp.where(
             too_long,
-            jnp.minimum(t1_next, t0 + (t1 - t0) * self.max_step_size / arc_length),
+            jnp.minimum(t1_next, t0 + (t1 - t0) / reduction),
             jnp.minimum(
                 t1_next,
                 t0_next + self.max_step_size / jnp.linalg.norm(scale.velocity),
