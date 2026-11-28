@@ -128,7 +128,8 @@ def _bin_power_deposition(
 
     # --- 3. Exact overlap-based binning on dense samples -------------------
     # dP_i = exp(-τ_i) − exp(-τ_{i+1}), clamped to ≥ 0.
-    dP = jnp.maximum(jnp.exp(-tau_fine[:-1]) - jnp.exp(-tau_fine[1:]), 0.0)
+    delta_tau = jnp.maximum(jnp.diff(tau_fine), 0.0)
+    dP = jnp.exp(-tau_fine[:-1]) * -jnp.expm1(-delta_tau)
     n_bins = rho_grid.shape[0]
     bin_width = rho_grid[1] - rho_grid[0]
     rho_a = rho_fine[:-1]
@@ -311,7 +312,7 @@ def trace(
         # _bin_power_deposition sanitizes inf before computing dP.
         od = result.ode_state[:, 6]
         tau_final = jnp.max(jnp.where(jnp.isfinite(od), od, 0.0))
-        absorbed_fraction = 1.0 - jnp.exp(-tau_final)
+        absorbed_fraction = -jnp.expm1(-tau_final)
         power_binned = _bin_power_deposition(
             magnetic_configuration.rho_1d,
             magnetic_configuration.dvolume_drho,
@@ -406,7 +407,7 @@ def trace(
     )
 
     tau_final = jnp.asarray(result.ode_state[n - 1, 6])
-    absorbed_fraction = 1.0 - jnp.exp(-tau_final)
+    absorbed_fraction = -jnp.expm1(-tau_final)
     rho_mean, rho_std = _deposition_stats(
         power_binned,
         magnetic_configuration.rho_1d,
