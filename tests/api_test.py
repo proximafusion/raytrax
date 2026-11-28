@@ -795,6 +795,38 @@ def test_tracer_settings_max_arc_length_limits_trajectory(
     np.testing.assert_allclose(short_length, 0.5, rtol=0, atol=1e-6)
 
 
+@pytest.mark.parametrize(
+    ("start_r", "direction_r"),
+    [(4.2, -1.0), (4.2, 1.0), (4.55, -1.0)],
+)
+def test_arc_length_limit_before_plasma_entry(
+    tokamak_magnetic_configuration, start_r, direction_r
+):
+    """The length cap can be reached while the entire ray is still in vacuum."""
+    beam, profiles = _make_tokamak_beam_and_profiles(tokamak_magnetic_configuration)
+    beam = replace(
+        beam,
+        position=jnp.array([start_r, 0.0, 0.0]),
+        direction=jnp.array([direction_r, 0.0, 0.0]),
+    )
+    settings = TracerSettings(max_arc_length=0.02, max_step_size=0.004, max_steps=48)
+    with pytest.warns(RuntimeWarning) as emitted:
+        result = trace(
+            tokamak_magnetic_configuration, profiles, beam, settings=settings
+        )
+
+    np.testing.assert_allclose(result.beam_profile.arc_length[-1], 0.02, atol=1e-8)
+    np.testing.assert_allclose(
+        result.beam_profile.position[-1],
+        [start_r + direction_r * 0.02, 0.0, 0.0],
+        atol=1e-8,
+    )
+    assert result.incomplete
+    assert result.absorbed_power == 0
+    assert not result.stopped_at_resonance
+    assert any("max_arc_length" in str(w.message) for w in emitted)
+
+
 def test_deposition_stats():
     """Mean and std are weighted by the deposited power and normalised by its sum."""
     rho = jnp.linspace(0.0, 1.0, 11)

@@ -399,6 +399,10 @@ def _cond_resonance(y, interpolators, nfp, tracer_settings):
     return 1.0 - n_perp_squared / tracer_settings.max_refractive_index_perp**2
 
 
+def _remaining_arc_length(t, y, args, **kwargs):
+    return args[3].max_arc_length - y[7]
+
+
 def _cond_terminate(t, y, args, **kwargs):
     """Terminate when this falls through zero, i.e. when the first of these happens.
 
@@ -419,7 +423,7 @@ def _cond_terminate(t, y, args, **kwargs):
             ),
             jnp.minimum(
                 20.0 - jnp.linalg.norm(y[:3]),
-                args[3].max_arc_length - y[7],
+                _remaining_arc_length(t, y, args),
             ),
         ),
         _cond_resonance(y, args[1], args[2], args[3]),
@@ -431,15 +435,39 @@ def _cond_terminate(t, y, args, **kwargs):
 # ray whose final arc length is within this tolerance of the cap was stopped by it.
 _ARC_LENGTH_TOLERANCE = 1e-6
 
+
 # The root find stops the ray where the condition crosses zero rather than at the end
 # of the step that crossed it, so the end of the ray does not jump with the step
 # placement. Bisection on the step's bracket always converges; Newton started at the
 # end of the step can diverge when rho is not monotonic along a long vacuum step.
+def _active_event(fn):
+    # Diffrax sets every residual except the triggering event to zero.
+    def scalar(t, args):
+        margins, aux = fn(t, args)
+        return margins[0] + margins[1], aux
+
+    return scalar
+
+
+class _EventBisection(optx.Bisection):
+    """Bisect the active scalar margin of the pair of termination events."""
+
+    def init(self, fn, y, args, options, f_struct, aux_struct, tags):
+        return super().init(
+            _active_event(fn), y, args, options, f_struct[0], aux_struct, tags
+        )
+
+    def step(self, fn, y, args, options, state, tags):
+        return super().step(_active_event(fn), y, args, options, state, tags)
+
+
+# The combined margin is negative before a vacuum launch enters rho < 1.05.
+# Check the arc limit independently there. If both cross within one step,
+# Diffrax selects the first event: the combined margin reaches the earlier stop.
 _event = diffrax.Event(
-    cond_fn=_cond_terminate,
-    # mypy takes Bisection.norm, a ClassVar, for a constructor argument.
-    root_finder=optx.Bisection(rtol=1e-9, atol=1e-9),  # type: ignore[call-arg]
-    direction=False,
+    cond_fn=(_cond_terminate, _remaining_arc_length),
+    root_finder=_EventBisection(rtol=1e-9, atol=1e-9, flip=True),  # type: ignore[call-arg]
+    direction=(False, False),
 )
 
 _term = diffrax.ODETerm(_right_hand_side)  # type: ignore[arg-type]
