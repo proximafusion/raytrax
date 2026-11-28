@@ -910,6 +910,38 @@ def test_bin_power_deposition_power_conservation():
     np.testing.assert_allclose(total_deposited, expected_total, rtol=1e-5)
 
 
+@pytest.mark.parametrize("trim", [True, False])
+def test_optically_thin_absorbed_power(tokamak_magnetic_configuration, trim):
+    """A small positive optical depth gives a nonzero absorbed and deposited power."""
+    config = tokamak_magnetic_configuration
+    rho = jnp.linspace(0, 1, 101)
+    profiles = RadialProfiles(rho, 1e-18 * (1 - rho**2), 3 * (1 - rho**2))
+    beam = Beam(
+        position=jnp.array([4.02, 0.0, 0.0]),
+        direction=jnp.array([-1.0, 0.13, 0.0]),
+        frequency=140e9,
+        mode="O",
+        power=1e6,
+    )
+    result = trace(
+        config, profiles, beam, trim=trim, settings=TracerSettings(max_steps=384)
+    )
+    tau = float(result.optical_depth)
+    assert 0 < tau < np.finfo(float).eps / 2
+    expected = -np.expm1(-tau)
+    np.testing.assert_allclose(
+        result.absorbed_power_fraction, expected, rtol=1e-12, atol=0
+    )
+    np.testing.assert_allclose(
+        result.absorbed_power, beam.power * expected, rtol=1e-12, atol=0
+    )
+    rho_bins = np.asarray(result.radial_profile.rho)
+    edges = np.r_[0.0, (rho_bins[1:] + rho_bins[:-1]) / 2, 1.0]
+    volumes = 6 * np.pi**2 * np.diff(edges**2)  # circular tokamak, R0=3, a=1
+    binned = np.dot(volumes, result.radial_profile.volumetric_power_density)
+    np.testing.assert_allclose(binned, beam.power * expected, rtol=1e-10, atol=0)
+
+
 def test_bin_power_with_padded_zeros():
     """Padded entries (optical_depth=inf after trajectory end) contribute zero power."""
     rho_grid = jnp.linspace(0.0, 1.0, 11)
