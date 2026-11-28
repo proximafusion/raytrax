@@ -168,6 +168,30 @@ def test_default_tolerances_resolve_narrow_deposition(
     )
 
 
+@pytest.mark.parametrize("launch_radius", [4.02, 4.02625, 4.0265])
+def test_perpendicular_x2_absorption_in_a_narrow_layer(
+    tokamak_magnetic_configuration, launch_radius
+):
+    """A shift along the same vacuum ray must preserve the power absorbed by X2."""
+    rho = jnp.linspace(0.0, 1.0, 101)
+    x = jnp.clip((1.0 - rho) / 0.25, 0.0, 1.0)
+    profile = x**2 * (3.0 - 2.0 * x)
+    profiles = RadialProfiles(rho, 0.35 * profile, 0.1 * profile)
+    beam = Beam(
+        position=jnp.array([launch_radius, 0.0, 0.0]),
+        direction=jnp.array([-1.0, 0.0, 0.0]),
+        frequency=140.4e9,
+        mode="X",
+        power=1e6,
+    )
+    result = trace(tokamak_magnetic_configuration, profiles, beam)
+    assert result.launched_on_hamiltonian
+    assert not result.incomplete
+    # For this radial ray ds = |dR| and N_perp^2 = RL/S. Spatial quadrature
+    # of alpha across the second harmonic in B = 7.5/R gives tau = 1.64524.
+    np.testing.assert_allclose(result.absorbed_power_fraction, 0.8070344, atol=5e-4)
+
+
 def test_ray_stays_on_dispersion_surface_with_finite_edge_density(
     tokamak_magnetic_configuration,
 ):
