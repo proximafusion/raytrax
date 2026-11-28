@@ -50,7 +50,16 @@ def interpolate_rz_slice(
     r_fine = np.linspace(r_vals.min(), r_vals.max(), n_r)
     z_fine = np.linspace(z_vals.min(), z_vals.max(), n_z)
     R, Z = np.meshgrid(r_fine, z_fine, indexing="ij")
-    points = np.stack([R.ravel(), np.full(R.size, phi), Z.ravel()], axis=-1)
+    query_z = Z
+    if magnetic_configuration.is_axisymmetric:
+        phi = phi_vals[0]
+    elif magnetic_configuration.is_stellarator_symmetric:
+        period = 2 * np.pi / magnetic_configuration.nfp
+        phi = phi % period
+        if phi > period / 2:
+            phi = period - phi
+            query_z = -Z
+    points = np.stack([R.ravel(), np.full(R.size, phi), query_z.ravel()], axis=-1)
     B_slice = interp_B(points).reshape(R.shape)
     rho_slice = interp_rho(points).reshape(R.shape)
 

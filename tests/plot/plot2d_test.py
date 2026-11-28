@@ -58,6 +58,31 @@ def test_interpolate_rz_slice_w7x_different_phi(w7x_magnetic_configuration):
         assert not np.allclose(slice_0.B[valid_both], slice_mid.B[valid_both])
 
 
+def test_axisymmetric_slice_at_any_angle(tokamak_magnetic_configuration):
+    """A rotation does not change a tokamak's poloidal slice."""
+    config = tokamak_magnetic_configuration
+    ref = interpolate_rz_slice(config, 0.0, n_r=24, n_z=26)
+    for phi in [np.pi / 2, 2 * np.pi, -np.pi / 2]:
+        rotated = interpolate_rz_slice(config, phi, n_r=24, n_z=26)
+        np.testing.assert_allclose(rotated.B, ref.B)
+        np.testing.assert_allclose(rotated.rho, ref.rho)
+
+
+def test_w7x_slice_field_period_and_stellarator_mirror(w7x_magnetic_configuration):
+    """Equivalent planes repeat after a field period and reflect in Z at -phi."""
+    config = w7x_magnetic_configuration
+    period = 2 * np.pi / config.nfp
+    phi = period / 4
+    ref = interpolate_rz_slice(config, phi, n_r=24, n_z=26)
+    for angle, reflected in [(phi + period, False), (-phi, True)]:
+        other = interpolate_rz_slice(config, angle, n_r=24, n_z=26)
+        np.testing.assert_array_equal(other.Z, ref.Z)
+        np.testing.assert_allclose(other.B, ref.B[:, ::-1] if reflected else ref.B)
+        np.testing.assert_allclose(
+            other.rho, ref.rho[:, ::-1] if reflected else ref.rho
+        )
+
+
 def test_plot_magnetic_field_rz_w7x(w7x_magnetic_configuration):
     """Test that plot_magnetic_field_rz works for W7-X."""
     fig, ax = plt.subplots()
